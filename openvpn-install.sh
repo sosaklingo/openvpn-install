@@ -1,5 +1,5 @@
 #!/bin/bash
-# OpenVPN road warrior installer for Debian, Ubuntu and CentOS
+# OpenVPN road warrior (sosaklingo edit) installer for Debian, Ubuntu and CentOS
 
 # This script will work on Debian, Ubuntu, CentOS and probably other distros
 # of the same families, although no support is offered for them. It isn't
@@ -161,7 +161,7 @@ if [[ -e /etc/openvpn/server.conf ]]; then
 	done
 else
 	clear
-	echo 'Welcome to this quick OpenVPN "road warrior" installer'
+	echo 'Welcome to this quick OpenVPN "road warrior" (sosaklingo edit) installer'
 	echo ""
 	# OpenVPN setup and first user creation
 	echo "I need to ask you a few questions before starting the setup"
@@ -209,6 +209,8 @@ else
 	chown -R root:root /etc/openvpn/easy-rsa/
 	rm -rf ~/EasyRSA-3.0.1.tgz
 	cd /etc/openvpn/easy-rsa/
+	echo "set_var EASYRSA_KEY_SIZE 2048
+set_var EASYRSA_DIGEST \"sha512\"" > vars
 	# Create the PKI, set up the CA, the DH params and the server + client certificates
 	./easyrsa init-pki
 	./easyrsa --batch build-ca nopass
@@ -265,6 +267,8 @@ comp-lzo
 persist-key
 persist-tun
 status openvpn-status.log
+cipher AES-256-CBC
+auth SHA512
 verb 3
 crl-verify /etc/openvpn/easy-rsa/pki/crl.pem" >> /etc/openvpn/server.conf
 	# Enable net.ipv4.ip_forward for the system
@@ -346,6 +350,8 @@ persist-key
 persist-tun
 remote-cert-tls server
 comp-lzo
+cipher AES-256-CBC
+auth SHA512
 verb 3" > /etc/openvpn/client-common.txt
 	# Generates the custom client.ovpn
 	newclient "$CLIENT"
