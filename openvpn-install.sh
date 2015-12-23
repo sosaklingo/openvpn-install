@@ -267,6 +267,7 @@ comp-lzo
 persist-key
 persist-tun
 status openvpn-status.log
+--reneg-sec 1500
 cipher AES-256-CBC
 auth SHA512
 verb 3
@@ -350,6 +351,7 @@ persist-key
 persist-tun
 remote-cert-tls server
 comp-lzo
+--reneg-sec 1500
 cipher AES-256-CBC
 auth SHA512
 verb 3" > /etc/openvpn/client-common.txt
