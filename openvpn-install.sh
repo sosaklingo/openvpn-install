@@ -28,6 +28,7 @@ while (($#)); do
         --version) VPN_ACTION="version" ;;
         --check) VPN_ACTION="check" ;;
         --preview) VPN_ACTION="preview" ;;
+        --port-demo) VPN_ACTION="port-demo" ;;
         *) printf 'Unknown option / Onbekende optie: %s\n' "$1" >&2; exit 2 ;;
     esac
     shift
@@ -52,6 +53,36 @@ VPN_LANG="${VPN_LANG:-nl}"
 # L english dutch -> localized string; no eval and no substitutions.
 L() { if [[ "$VPN_LANG" == "nl" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 say() { printf '%s\n' "$(L "$1" "$2")"; }
+
+# Port selection is independent from root privileges, so it can be tested safely.
+# A blank choice uses default UDP/TCP port 1194; custom ports must be 1-65535.
+choose_vpn_port() {
+    local choice custom
+    printf '\n'
+    say 'Choose the VPN port:' 'Kies de VPN-poort:'
+    say '   1) Standard port 1194 (recommended)' '   1) Standaardpoort 1194 (aanbevolen)'
+    say '   2) Enter a custom port' '   2) Zelf een poortnummer invoeren'
+    while :; do
+        read -r -p "$(L 'Option [1]: ' 'Optie [1]: ')" choice || return 1
+        case "$choice" in
+            ""|1) port=1194; break ;;
+            2)
+                while :; do
+                    read -r -p "$(L 'Enter port (1-65535): ' 'Voer poortnummer in (1-65535): ')" custom || return 1
+                    # Limit length before arithmetic to prevent overflow or octal handling.
+                    if [[ "$custom" =~ ^[0-9]{1,5}$ ]] &&
+                       (( 10#$custom >= 1 && 10#$custom <= 65535 )); then
+                        port=$((10#$custom))
+                        break
+                    fi
+                    say 'Invalid port. Enter a number from 1 to 65535.' 'Ongeldige poort. Kies een nummer van 1 tot en met 65535.'
+                done
+                break ;;
+            *) say 'Choose 1 or 2.' 'Kies 1 of 2.' ;;
+        esac
+    done
+    printf '%s %s\n' "$(L 'Selected VPN port:' 'Gekozen VPN-poort:')" "$port"
+}
 
 # Make root-readable-only backups before modifying an existing OpenVPN tree.
 # This is a configuration backup, NOT a full firewall or package rollback.
@@ -79,11 +110,12 @@ show_help() {
     printf 'OpenVPN Installer - sosaklingo (2026)\n'
     printf '%s\n' "$(L 'One installer, English and Dutch.' 'Eén installatieprogramma, Nederlands en Engels.')"
     printf '%s\n' "$(L 'Usage:' 'Gebruik:')"
-    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview]\n'
+    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo]\n'
     printf '  sudo bash openvpn-install.sh --lang nl\n'
     printf '  sudo bash openvpn-install.sh --lang en\n\n'
     say 'Without options you can choose a language and follow the menu.' 'Zonder opties kies je eerst je taal en volg je het menu.'
     say '--preview displays the menu without modifying your system.' '--preview toont het menu zonder iets aan je systeem te wijzigen.'
+    say '--port-demo tests standard/custom ports without root access.' '--port-demo test standaard- of eigen poort zonder administratorrechten.'
     say '--check performs a read-only basic environment check.' '--check voert een eenvoudige alleen-lezen systeemcontrole uit.'
     say 'Supports Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ and Fedora.' 'Geschikt voor Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ en Fedora.'
     say 'Do not use on a live VPN server without a backup and console access.' 'Niet uitvoeren op een actieve VPN-server zonder back-up en consoletoegang.'
@@ -101,10 +133,14 @@ case "$VPN_ACTION" in
         say 'OpenVPN easy setup' 'OpenVPN eenvoudige installatie'
         say '1. Check your server (no changes)' '1. Controleer je server (geen wijzigingen)'
         say '2. Choose protocol (default: UDP)' '2. Kies protocol (standaard: UDP)'
-        say '3. Choose port (default: 1194)' '3. Kies poort (standaard: 1194)'
+        say '3. Choose port 1194 or enter a custom port' '3. Kies poort 1194 of voer zelf een poort in'
         say '4. Choose DNS and client name' '4. Kies DNS en clientnaam'
         say '5. Confirm installation' '5. Bevestig de installatie'
         say 'No changes were made.' 'Er zijn geen wijzigingen aangebracht.'
+        exit 0 ;;
+    port-demo)
+        choose_vpn_port || exit 1
+        say 'Port selection test finished; no settings changed.' 'Poortkeuze getest; er zijn geen instellingen gewijzigd.'
         exit 0 ;;
     check)
         printf '%s\n' "$(L 'Read-only OpenVPN installer check' 'OpenVPN systeemcontrole (alleen lezen)')"
@@ -301,13 +337,7 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		;;
 	esac
 	echo
-	say 'Which port should OpenVPN use?' 'Welke poort moet OpenVPN gebruiken?'
-	read -r -p "$(L 'Port [1194]: ' 'Poort [1194]: ')" port
-	until [[ -z "$port" || ( "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ) ]]; do
-		printf '%s: %s\n' "$port" "$(L 'invalid port' 'ongeldige poort')"
-		read -r -p "$(L 'Port [1194]: ' 'Poort [1194]: ')" port
-	done
-	[[ -z "$port" ]] && port="1194"
+	choose_vpn_port || exit 1
 	echo
 	say 'Choose a DNS server for VPN clients:' 'Kies een DNS-server voor VPN-gebruikers:'
 	say '   1) Default system resolvers' '   1) DNS van het systeem (standaard)'
