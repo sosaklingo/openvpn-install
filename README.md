@@ -31,6 +31,31 @@ Maintenance version of Nyr's original MIT-licensed OpenVPN installer. The 2015 v
 
 3. Kies **1. Nederlands** (of **2. English**) en druk op Enter om standaardkeuzes te accepteren, zoals UDP, poort 1194 en de DNS-resolvers van het systeem.
 
+### UDP/TCP-poort kiezen / Choose the VPN port
+
+Na de keuze **UDP (aanbevolen)** of TCP verschijnt een apart poortmenu:
+
+```text
+Kies de VPN-poort:                  / Choose the VPN port:
+1) Standaardpoort 1194             / Standard port 1194
+2) Zelf een poortnummer invoeren   / Enter a custom port
+```
+
+- **Optie 1** of Enter: poort **1194**.
+- **Optie 2**: voer zelf een poort van **1 tot en met 65535** in, bijvoorbeeld `443`, `1195` of `51820`.
+- De gekozen poort wordt gebruikt in de **serverconfiguratie**, **clientprofielen** en de regels die het installatieprogramma beheert.
+- Zorg dat de gekozen **UDP- of TCP-poort** ook in een eventuele router, VPS-providerfirewall of cloud-firewall is toegestaan. Een poort kan daarnaast al door een andere dienst worden gebruikt.
+- Kies bij twijfel **UDP + 1194**; een andere poort op zichzelf maakt een VPN niet veiliger.
+
+**Zonder installatie uitproberen / Try the port menu without installing:**
+
+```bash
+bash openvpn-install.sh --lang nl --port-demo
+bash openvpn-install.sh --lang en --port-demo
+```
+
+Deze test verandert niets aan de VPN-instellingen. / This test does not modify VPN settings.
+
 Je kunt de taal ook direct vastzetten met `sudo bash openvpn-install.sh --nl` of `sudo bash openvpn-install.sh --en`.
 
 **Voor een bestaande VPN-server**: niet meteen installeren. Raadpleeg [MIGRATION.md](MIGRATION.md) voor oude servers. Een server uit 2015 wordt bewust niet automatisch gemigreerd.
