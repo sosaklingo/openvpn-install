@@ -367,7 +367,7 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		fi
 	fi
 	printf '\n'
-	printf '%s %s, %s %s/UDP\n' "$(L 'Selected protocol:' 'Gekozen protocol:')" "$protocol" "$(L 'port:' 'poort:')" "$port"
+	printf '%s %s, %s %s\n' "$(L 'Selected protocol:' 'Gekozen protocol:')" "$protocol" "$(L 'port:' 'poort:')" "$port"
 	read -r -p "$(L 'Type YES to install OpenVPN (anything else cancels): ' 'Typ JA om OpenVPN te installeren (anders annuleren): ')" confirm
 	if [[ ( "$VPN_LANG" == "nl" && "$confirm" != "JA" ) ||
 	      ( "$VPN_LANG" == "en" && "$confirm" != "YES" ) ]]; then
