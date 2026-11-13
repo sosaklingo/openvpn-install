@@ -54,6 +54,11 @@ must_have "308743bc9fe871b902d47dbe98d749daff3a05b27531684f02625ce7208d4598"
 must_have "sha256sum --check --status"
 must_have 'if [[ -f /etc/openvpn/server.conf && ! -f /etc/openvpn/server/server.conf ]]'
 must_have "umask 077"
+must_have "backup_existing_openvpn"
+must_have "mktemp \"\$backup_dir/openvpn-"
+must_have 'Type YES to install OpenVPN'
+must_have 'Typ JA om OpenVPN te installeren'
+must_have '"$port" -ge 1'
 must_have "https://api.ipify.org"
 must_have "VPN-gebruiker"
 must_have "VPN client"
