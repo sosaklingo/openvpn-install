@@ -14,4 +14,4 @@
 
 ## 2015
 
-- Original sosaklingo fork and local customization retained in Git history and on the original `master` branch until promoted.
+- Original sosaklingo fork and local customization retained in Git history and on the `legacy-2015` branch for reference.
