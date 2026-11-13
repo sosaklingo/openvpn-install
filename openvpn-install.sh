@@ -125,7 +125,7 @@ esac
 
 # Detect Debian users running the script with "sh" instead of bash
 if readlink /proc/$$/exe | grep -q "dash"; then
-	echo 'This installer needs to be run with "bash", not "sh".'
+	say 'Run this installer with bash, not sh.' 'Start dit installatieprogramma met bash, niet met sh.'
 	exit
 fi
 
@@ -151,58 +151,53 @@ elif [[ -e /etc/fedora-release ]]; then
 	os_version=$(grep -oE '[0-9]+' /etc/fedora-release | head -1)
 	group_name="nobody"
 else
-	echo "This installer seems to be running on an unsupported distribution.
-Supported distros are Ubuntu, Debian, AlmaLinux, Rocky Linux, CentOS and Fedora."
+	say 'This Linux distribution is not supported. Supported: Ubuntu, Debian, AlmaLinux, Rocky Linux, CentOS and Fedora.' 'Deze Linux-distributie wordt niet ondersteund. Ondersteund: Ubuntu, Debian, AlmaLinux, Rocky Linux, CentOS en Fedora.'
 	exit
 fi
 
 if [[ "$os" == "ubuntu" && "$os_version" -lt 2204 ]]; then
-	echo "Ubuntu 22.04 or higher is required to use this installer.
-This version of Ubuntu is too old and unsupported."
+	say 'Ubuntu 22.04 or newer is required. Your version is too old.' 'Ubuntu 22.04 of nieuwer is vereist. Jouw versie is te oud.'
 	exit
 fi
 
 if [[ "$os" == "debian" ]]; then
 	if grep -q '/sid' /etc/debian_version; then
-		echo "Debian Testing and Debian Unstable are unsupported by this installer."
+		say 'Debian Testing and Unstable are not supported.' 'Debian Testing en Unstable worden niet ondersteund.'
 		exit
 	fi
 	if [[ "$os_version" -lt 11 ]]; then
-		echo "Debian 11 or higher is required to use this installer.
-This version of Debian is too old and unsupported."
+		say 'Debian 11 or newer is required. Your version is too old.' 'Debian 11 of nieuwer is vereist. Jouw versie is te oud.'
 		exit
 	fi
 fi
 
 if [[ "$os" == "centos" && "$os_version" -lt 9 ]]; then
 	os_name=$(sed 's/ release.*//' /etc/almalinux-release /etc/rocky-release /etc/centos-release 2>/dev/null | head -1)
-	echo "$os_name 9 or higher is required to use this installer.
-This version of $os_name is too old and unsupported."
+	printf '%s\n' "$(L "$os_name 9 or newer is required. Your version is too old." "$os_name 9 of nieuwer is vereist. Jouw versie is te oud.")"
 	exit
 fi
 
 # Detect environments where $PATH does not include the sbin directories
 if ! grep -q sbin <<< "$PATH"; then
-	echo '$PATH does not include sbin. Try using "su -" instead of "su".'
+	say 'The PATH does not include sbin. Try su - instead of su.' 'Het PATH bevat geen sbin. Gebruik su - in plaats van su.'
 	exit
 fi
 
 if [[ "$EUID" -ne 0 ]]; then
-	echo "This installer needs to be run with superuser privileges."
+	say 'Administrator privileges are required. Use sudo.' 'Administratorrechten zijn vereist. Gebruik sudo.'
 	exit
 fi
 
 if [[ ! -e /dev/net/tun ]] || ! ( exec 7<>/dev/net/tun ) 2>/dev/null; then
-	echo "The system does not have the TUN device available.
-TUN needs to be enabled before running this installer."
+	say 'The /dev/net/tun device is missing or inaccessible. Enable TUN before installation.' 'Het apparaat /dev/net/tun ontbreekt of is niet toegankelijk. Schakel TUN in voordat je installeert.'
 	exit
 fi
 
 # Safety: the old 2015 installer used a different config and service layout.
 # Treating that as a new install could break an existing server.
 if [[ -f /etc/openvpn/server.conf && ! -f /etc/openvpn/server/server.conf ]]; then
-    echo 'Legacy /etc/openvpn/server.conf detected. Refusing automatic migration.'
-    echo 'Back up your VPN server and migrate it manually; see MIGRATION.md.'
+    say 'Old /etc/openvpn/server.conf found. Automatic migration is refused.' 'Oude /etc/openvpn/server.conf gevonden. Automatische migratie wordt geweigerd.'
+    say 'Back up the VPN server and migrate it manually; see MIGRATION.md.' 'Maak een back-up van de VPN-server en migreer handmatig; zie MIGRATION.md.'
     exit 3
 fi
 
@@ -213,23 +208,23 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	# HTTPS downloader must be installed before changing the server.
 	# Unlike the historical installer, this works consistently on Debian and RPM systems.
 	if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
-		echo 'Please install curl or wget first, then run the installer again.' >&2
+		say 'Please install curl or wget first, then run the installer again.' 'Installeer eerst curl of wget en start het script opnieuw.' >&2
 		exit 1
 	fi
 	clear
-	echo 'Welcome to this OpenVPN road warrior installer!'
+	say 'Welcome to the OpenVPN installer.' 'Welkom bij de OpenVPN-installatie.'
 	# If system has a single IPv4, it is selected automatically. Else, ask the user
 	if [[ $(ip -4 addr | grep inet | grep -vEc '127(\.[0-9]{1,3}){3}') -eq 1 ]]; then
 		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}')
 	else
 		number_of_ip=$(ip -4 addr | grep inet | grep -vEc '127(\.[0-9]{1,3}){3}')
 		echo
-		echo "Which IPv4 address should be used?"
+		say 'Which IPv4 address should OpenVPN use?' 'Welk IPv4-adres moet OpenVPN gebruiken?'
 		ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | nl -s ') '
-		read -p "IPv4 address [1]: " ip_number
+		read -r -p "$(L 'IPv4 address [1]: ' 'IPv4-adres [1]: ')" ip_number
 		until [[ -z "$ip_number" || "$ip_number" =~ ^[0-9]+$ && "$ip_number" -le "$number_of_ip" ]]; do
-			echo "$ip_number: invalid selection."
-			read -p "IPv4 address [1]: " ip_number
+			printf '%s: %s\n' "$ip_number" "$(L 'invalid selection' 'ongeldige keuze')"
+			read -r -p "$(L 'IPv4 address [1]: ' 'IPv4-adres [1]: ')" ip_number
 		done
 		[[ -z "$ip_number" ]] && ip_number="1"
 		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | sed -n "$ip_number"p)
@@ -237,14 +232,14 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	# If $ip is a private IP address, the server must be behind NAT
 	if echo "$ip" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
 		echo
-		echo "This server is behind NAT. What is the public IPv4 address or hostname?"
+		say 'This server is behind NAT. Enter the public IPv4 address or hostname.' 'Deze server staat achter NAT. Vul het openbare IPv4-adres of de hostnaam in.'
 		# Get public IP and sanitize with grep
 		get_public_ip=$(grep -m 1 -oE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' <<< "$(wget -T 10 -t 1 -4qO- "https://api.ipify.org" || curl -m 10 -4Ls "https://api.ipify.org")")
-		read -p "Public IPv4 address / hostname [$get_public_ip]: " public_ip
+		read -r -p "$(L "Public IPv4 address / hostname [$get_public_ip]: " "Openbaar IPv4-adres / hostnaam [$get_public_ip]: ")" public_ip
 		# If the checkip service is unavailable and user didn't provide input, ask again
 		until [[ -n "$get_public_ip" || -n "$public_ip" ]]; do
-			echo "Invalid input."
-			read -p "Public IPv4 address / hostname: " public_ip
+			say 'Invalid input.' 'Ongeldige invoer.'
+			read -r -p "$(L 'Public IPv4 address / hostname: ' 'Openbaar IPv4-adres / hostnaam: ')" public_ip
 		done
 		[[ -z "$public_ip" ]] && public_ip="$get_public_ip"
 	fi
@@ -256,24 +251,24 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	if [[ $(ip -6 addr | grep -c 'inet6 [23]') -gt 1 ]]; then
 		number_of_ip6=$(ip -6 addr | grep -c 'inet6 [23]')
 		echo
-		echo "Which IPv6 address should be used?"
+		say 'Which IPv6 address should OpenVPN use?' 'Welk IPv6-adres moet OpenVPN gebruiken?'
 		ip -6 addr | grep 'inet6 [23]' | cut -d '/' -f 1 | grep -oE '([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}' | nl -s ') '
-		read -p "IPv6 address [1]: " ip6_number
+		read -r -p "$(L 'IPv6 address [1]: ' 'IPv6-adres [1]: ')" ip6_number
 		until [[ -z "$ip6_number" || "$ip6_number" =~ ^[0-9]+$ && "$ip6_number" -le "$number_of_ip6" ]]; do
-			echo "$ip6_number: invalid selection."
-			read -p "IPv6 address [1]: " ip6_number
+			printf '%s: %s\n' "$ip6_number" "$(L 'invalid selection' 'ongeldige keuze')"
+			read -r -p "$(L 'IPv6 address [1]: ' 'IPv6-adres [1]: ')" ip6_number
 		done
 		[[ -z "$ip6_number" ]] && ip6_number="1"
 		ip6=$(ip -6 addr | grep 'inet6 [23]' | cut -d '/' -f 1 | grep -oE '([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}' | sed -n "$ip6_number"p)
 	fi
 	echo
-	echo "Which protocol should OpenVPN use?"
-	echo "   1) UDP (recommended)"
+	say 'Which protocol should OpenVPN use?' 'Welk protocol moet OpenVPN gebruiken?'
+	say '   1) UDP (recommended)' '   1) UDP (aanbevolen)'
 	echo "   2) TCP"
-	read -p "Protocol [1]: " protocol
+	read -r -p "$(L 'Protocol [1]: ' 'Protocol [1]: ')" protocol
 	until [[ -z "$protocol" || "$protocol" =~ ^[12]$ ]]; do
-		echo "$protocol: invalid selection."
-		read -p "Protocol [1]: " protocol
+		printf '%s: %s\n' "$protocol" "$(L 'invalid selection' 'ongeldige keuze')"
+		read -r -p "$(L 'Protocol [1]: ' 'Protocol [1]: ')" protocol
 	done
 	case "$protocol" in
 		1|"") 
@@ -284,34 +279,34 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		;;
 	esac
 	echo
-	echo "What port should OpenVPN listen on?"
-	read -p "Port [1194]: " port
+	say 'Which port should OpenVPN use?' 'Welke poort moet OpenVPN gebruiken?'
+	read -r -p "$(L 'Port [1194]: ' 'Poort [1194]: ')" port
 	until [[ -z "$port" || "$port" =~ ^[0-9]+$ && "$port" -le 65535 ]]; do
-		echo "$port: invalid port."
-		read -p "Port [1194]: " port
+		printf '%s: %s\n' "$port" "$(L 'invalid port' 'ongeldige poort')"
+		read -r -p "$(L 'Port [1194]: ' 'Poort [1194]: ')" port
 	done
 	[[ -z "$port" ]] && port="1194"
 	echo
-	echo "Select a DNS server for the clients:"
-	echo "   1) Default system resolvers"
+	say 'Choose a DNS server for VPN clients:' 'Kies een DNS-server voor VPN-gebruikers:'
+	say '   1) Default system resolvers' '   1) DNS van het systeem (standaard)'
 	echo "   2) Google"
 	echo "   3) 1.1.1.1"
 	echo "   4) OpenDNS"
 	echo "   5) Quad9"
 	echo "   6) Gcore"
 	echo "   7) AdGuard"
-	echo "   8) Specify custom resolvers"
-	read -p "DNS server [1]: " dns
+	say '   8) Specify custom resolvers' '   8) Zelf DNS-servers invoeren'
+	read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns
 	until [[ -z "$dns" || "$dns" =~ ^[1-8]$ ]]; do
-		echo "$dns: invalid selection."
-		read -p "DNS server [1]: " dns
+		printf '%s: %s\n' "$dns" "$(L 'invalid selection' 'ongeldige keuze')"
+		read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns
 	done
 	# If the user selected custom resolvers, we deal with that here
 	if [[ "$dns" = "8" ]]; then
 		echo
 		until [[ -n "$custom_dns" ]]; do
-			echo "Enter DNS servers (one or more IPv4 addresses, separated by commas or spaces):"
-			read -p "DNS servers: " dns_input
+			say 'Enter DNS servers (one or more IPv4 addresses, separated by commas or spaces):' 'Voer DNS-servers in (IPv4-adressen, gescheiden door komma of spatie):'
+			read -r -p "$(L 'DNS servers: ' 'DNS-servers: ')" dns_input
 			# Convert comma delimited to space delimited
 			dns_input=$(echo "$dns_input" | tr ',' ' ')
 			# Validate and build custom DNS IP list
@@ -325,31 +320,31 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 				fi
 			done
 			if [ -z "$custom_dns" ]; then
-				echo "Invalid input."
+				say 'Invalid input.' 'Ongeldige invoer.'
 			fi
 		done
 	fi
 	echo
-	echo "Enter a name for the first client:"
-	read -p "Name [client]: " unsanitized_client
+	say 'Choose a name for the first VPN client:' 'Kies een naam voor de eerste VPN-gebruiker:'
+	read -r -p "$(L 'Name [client]: ' 'Naam [client]: ')" unsanitized_client
 	# Allow a limited set of characters to avoid conflicts
 	client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 	[[ -z "$client" ]] && client="client"
 	echo
-	echo "OpenVPN installation is ready to begin."
+	say 'The OpenVPN installation is ready to begin.' 'OpenVPN staat klaar om te installeren.'
 	# Install a firewall if firewalld or iptables are not already available
 	if ! systemctl is-active --quiet firewalld.service && ! hash iptables 2>/dev/null; then
 		if [[ "$os" == "centos" || "$os" == "fedora" ]]; then
 			firewall="firewalld"
 			# We don't want to silently enable firewalld, so we give a subtle warning
 			# If the user continues, firewalld will be installed and enabled during setup
-			echo "firewalld, which is required to manage routing tables, will also be installed."
+			say 'firewalld will also be installed to manage firewall rules.' 'firewalld wordt ook geïnstalleerd om firewallregels te beheren.'
 		elif [[ "$os" == "debian" || "$os" == "ubuntu" ]]; then
 			# iptables is way less invasive than firewalld so no warning is given
 			firewall="iptables"
 		fi
 	fi
-	read -n1 -r -p "Press any key to continue..."
+	read -n1 -r -p "$(L 'Press any key to continue...' 'Druk op een toets om verder te gaan...')"
 	# If running inside a container, disable LimitNPROC to prevent conflicts
 	if systemd-detect-virt -cq; then
 		mkdir /etc/systemd/system/openvpn-server@server.service.d/ 2>/dev/null
@@ -378,29 +373,29 @@ LimitNPROC=infinity" > /etc/systemd/system/openvpn-server@server.service.d/disab
 	easy_rsa_archive=$(mktemp /tmp/openvpn-easyrsa.XXXXXXXX.tgz) || exit 1
 	if command -v curl >/dev/null 2>&1; then
 		if ! curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 120 --proto '=https' --tlsv1.2 --output "$easy_rsa_archive" "$easy_rsa_url"; then
-			echo 'Failed to download Easy-RSA securely.' >&2
+			say 'Failed to download Easy-RSA securely.' 'Veilig downloaden van Easy-RSA is mislukt.' >&2
 			rm -f -- "$easy_rsa_archive"
 			exit 1
 		fi
 	elif command -v wget >/dev/null 2>&1; then
 		if ! wget --https-only --timeout=120 --tries=3 -qO "$easy_rsa_archive" "$easy_rsa_url"; then
-			echo 'Failed to download Easy-RSA securely.' >&2
+			say 'Failed to download Easy-RSA securely.' 'Veilig downloaden van Easy-RSA is mislukt.' >&2
 			rm -f -- "$easy_rsa_archive"
 			exit 1
 		fi
 	else
-		echo 'curl or wget is required for the verified Easy-RSA download.' >&2
+		say 'curl or wget is required for the verified Easy-RSA download.' 'Voor de geverifieerde Easy-RSA-download is curl of wget nodig.' >&2
 		rm -f -- "$easy_rsa_archive"
 		exit 1
 	fi
 	if ! printf '%s  %s\n' "$easy_rsa_sha256" "$easy_rsa_archive" | sha256sum --check --status; then
-		echo 'Easy-RSA SHA-256 verification failed. Refusing extraction.' >&2
+		say 'Easy-RSA SHA-256 verification failed. Refusing extraction.' 'De SHA-256-controle van Easy-RSA is mislukt. Uitpakken wordt geweigerd.' >&2
 		rm -f -- "$easy_rsa_archive"
 		exit 1
 	fi
 	mkdir -p /etc/openvpn/server/easy-rsa/ || exit 1
 	if ! tar -xzf "$easy_rsa_archive" --strip-components 1 --no-same-owner --no-same-permissions -C /etc/openvpn/server/easy-rsa/; then
-		echo 'Could not extract verified Easy-RSA archive.' >&2
+		say 'Could not extract the verified Easy-RSA archive.' 'Het geverifieerde Easy-RSA-archief kon niet worden uitgepakt.' >&2
 		rm -f -- "$easy_rsa_archive"
 		exit 1
 	fi
@@ -603,39 +598,39 @@ ignore-unknown-option block-outside-dns
 verb 3" > /etc/openvpn/server/client-common.txt
 	# Enable and start the OpenVPN service
 	if ! systemctl enable --now openvpn-server@server.service; then
-		echo 'Failed to start OpenVPN server. Check journalctl -u openvpn-server@server.service.' >&2
+		say 'OpenVPN did not start. Check: journalctl -u openvpn-server@server.service' 'OpenVPN kon niet starten. Controleer: journalctl -u openvpn-server@server.service' >&2
 		exit 1
 	fi
 	# Build the $client.ovpn file, stripping comments from easy-rsa in the process
 	grep -vh '^#' /etc/openvpn/server/client-common.txt /etc/openvpn/server/easy-rsa/pki/inline/private/"$client".inline > "$script_dir"/"$client".ovpn
 	echo
-	echo "Finished!"
+	say 'Installation completed!' 'Installatie voltooid!'
 	echo
-	echo "The client configuration is available in:" "$script_dir"/"$client.ovpn"
-	echo "New clients can be added by running this script again."
+	printf '%s %s\n' "$(L 'Client configuration:' 'VPN-gebruikersbestand:')" "$script_dir/$client.ovpn"
+	say 'Run this script again to add VPN clients.' 'Start dit script opnieuw om VPN-gebruikers toe te voegen.'
 else
 	clear
-	echo "OpenVPN is already installed."
+	say 'OpenVPN is already installed.' 'OpenVPN is al geïnstalleerd.'
 	echo
-	echo "Select an option:"
-	echo "   1) Add a new client"
-	echo "   2) Revoke an existing client"
-	echo "   3) Remove OpenVPN"
-	echo "   4) Exit"
-	read -p "Option: " option
+	say 'Choose an option:' 'Kies een optie:'
+	say '   1) Add a new VPN client' '   1) VPN-gebruiker toevoegen'
+	say '   2) Revoke a VPN client' '   2) VPN-gebruiker intrekken'
+	say '   3) Remove OpenVPN' '   3) OpenVPN verwijderen'
+	say '   4) Exit' '   4) Afsluiten'
+	read -r -p "$(L 'Option: ' 'Optie: ')" option
 	until [[ "$option" =~ ^[1-4]$ ]]; do
-		echo "$option: invalid selection."
-		read -p "Option: " option
+		printf '%s: %s\n' "$option" "$(L 'invalid selection' 'ongeldige keuze')"
+		read -r -p "$(L 'Option: ' 'Optie: ')" option
 	done
 	case "$option" in
 		1)
 			echo
-			echo "Provide a name for the client:"
-			read -p "Name: " unsanitized_client
+			say 'Enter a name for the VPN client:' 'Voer een naam in voor de VPN-gebruiker:'
+			read -r -p "$(L 'Name: ' 'Naam: ')" unsanitized_client
 			client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 			while [[ -z "$client" || -e /etc/openvpn/server/easy-rsa/pki/issued/"$client".crt ]]; do
-				echo "$client: invalid name."
-				read -p "Name: " unsanitized_client
+				printf '%s: %s\n' "$client" "$(L 'invalid client name' 'ongeldige gebruikersnaam')"
+				read -r -p "$(L 'Name: ' 'Naam: ')" unsanitized_client
 				client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 			done
 			cd /etc/openvpn/server/easy-rsa/
@@ -643,7 +638,7 @@ else
 			# Build the $client.ovpn file, stripping comments from easy-rsa in the process
 			grep -vh '^#' /etc/openvpn/server/client-common.txt /etc/openvpn/server/easy-rsa/pki/inline/private/"$client".inline > "$script_dir"/"$client".ovpn
 			echo
-			echo "$client added. Configuration available in:" "$script_dir"/"$client.ovpn"
+			printf '%s %s\n' "$(L "$client added. Client configuration:" "$client toegevoegd. VPN-gebruikersbestand:")" "$script_dir/$client.ovpn"
 			exit
 		;;
 		2)
@@ -652,25 +647,25 @@ else
 			number_of_clients=$(tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep -c "^V")
 			if [[ "$number_of_clients" = 0 ]]; then
 				echo
-				echo "There are no existing clients!"
+				say 'There are no VPN clients to revoke.' 'Er zijn geen VPN-gebruikers om in te trekken.'
 				exit
 			fi
 			echo
-			echo "Select the client to revoke:"
+			say 'Choose the VPN client to revoke:' 'Kies de VPN-gebruiker die je wilt intrekken:'
 			tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
-			read -p "Client: " client_number
+			read -r -p "$(L 'Client: ' 'Gebruiker: ')" client_number
 			until [[ "$client_number" =~ ^[0-9]+$ && "$client_number" -le "$number_of_clients" ]]; do
-				echo "$client_number: invalid selection."
-				read -p "Client: " client_number
+				printf '%s: %s\n' "$client_number" "$(L 'invalid selection' 'ongeldige keuze')"
+				read -r -p "$(L 'Client: ' 'Gebruiker: ')" client_number
 			done
 			client=$(tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$client_number"p)
 			echo
-			read -p "Confirm $client revocation? [y/N]: " revoke
-			until [[ "$revoke" =~ ^[yYnN]*$ ]]; do
-				echo "$revoke: invalid selection."
-				read -p "Confirm $client revocation? [y/N]: " revoke
+			read -r -p "$(L "Revoke VPN client $client? [y/N]: " "VPN-gebruiker $client intrekken? [j/N]: ")" revoke
+			until [[ "$revoke" =~ ^[yYjJnN]*$ ]]; do
+				printf '%s: %s\n' "$revoke" "$(L 'invalid selection' 'ongeldige keuze')"
+				read -r -p "$(L "Revoke VPN client $client? [y/N]: " "VPN-gebruiker $client intrekken? [j/N]: ")" revoke
 			done
-			if [[ "$revoke" =~ ^[yY]$ ]]; then
+			if [[ "$revoke" =~ ^[yYjJ]$ ]]; then
 				cd /etc/openvpn/server/easy-rsa/
 				./easyrsa --batch revoke "$client"
 				./easyrsa --batch --days=3650 gen-crl
@@ -681,21 +676,21 @@ else
 				# CRL is read with each client connection, when OpenVPN is dropped to nobody
 				chown nobody:"$group_name" /etc/openvpn/server/crl.pem
 				echo
-				echo "$client revoked!"
+				printf '%s\n' "$(L "VPN client $client revoked!" "VPN-gebruiker $client is ingetrokken!")"
 			else
 				echo
-				echo "$client revocation aborted!"
+				printf '%s\n' "$(L "Revocation of $client cancelled." "Intrekken van $client geannuleerd.")"
 			fi
 			exit
 		;;
 		3)
 			echo
-			read -p "Confirm OpenVPN removal? [y/N]: " remove
-			until [[ "$remove" =~ ^[yYnN]*$ ]]; do
-				echo "$remove: invalid selection."
-				read -p "Confirm OpenVPN removal? [y/N]: " remove
+			read -r -p "$(L 'Remove OpenVPN? [y/N]: ' 'OpenVPN verwijderen? [j/N]: ')" remove
+			until [[ "$remove" =~ ^[yYjJnN]*$ ]]; do
+				printf '%s: %s\n' "$remove" "$(L 'invalid selection' 'ongeldige keuze')"
+				read -r -p "$(L 'Remove OpenVPN? [y/N]: ' 'OpenVPN verwijderen? [j/N]: ')" remove
 			done
-			if [[ "$remove" =~ ^[yY]$ ]]; then
+			if [[ "$remove" =~ ^[yYjJ]$ ]]; then
 				port=$(grep '^port ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
 				protocol=$(grep '^proto ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
 				if systemctl is-active --quiet firewalld.service; then
@@ -733,10 +728,10 @@ else
 					rm -rf /etc/openvpn/server
 				fi
 				echo
-				echo "OpenVPN removed!"
+				say 'OpenVPN removed.' 'OpenVPN is verwijderd.'
 			else
 				echo
-				echo "OpenVPN removal aborted!"
+				say 'OpenVPN removal cancelled.' 'Verwijderen van OpenVPN is geannuleerd.'
 			fi
 			exit
 		;;
