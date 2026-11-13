@@ -1,6 +1,6 @@
 # Security policy and scope
 
-The `modern-2026` branch is a maintenance candidate based on upstream [Nyr/openvpn-install](https://github.com/Nyr/openvpn-install) revision `7ff931a`.
+The 2026 maintenance edition is based on upstream [Nyr/openvpn-install](https://github.com/Nyr/openvpn-install) revision `7ff931a`.
 
 ## Confirmed safeguards
 
