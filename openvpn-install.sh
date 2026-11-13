@@ -11,29 +11,81 @@
 set -o pipefail
 umask 077
 
-show_help() {
-    cat <<'HELP'
-OpenVPN installer -- sosaklingo maintenance edition (2026-11)
-Usage:
-  bash openvpn-install.sh --help       Show this help without changes
-  bash openvpn-install.sh --version    Display version and source revision
-  bash openvpn-install.sh --check      Read-only environment preflight
-  bash openvpn-install.sh             Install/manage OpenVPN interactively (as root)
+# One installer, two languages. Only UI strings are translated; OpenVPN
+# configuration syntax stays in English as required by OpenVPN.
+VPN_LANG=""
+VPN_ACTION=""
+while (($#)); do
+    case "$1" in
+        --lang|-l)
+            shift
+            (($#)) || { printf 'Missing language / Taal ontbreekt.\n' >&2; exit 2; }
+            VPN_LANG="$1" ;;
+        --lang=*) VPN_LANG="${1#--lang=}" ;;
+        --nl) VPN_LANG="nl" ;;
+        --en) VPN_LANG="en" ;;
+        --help|-h) VPN_ACTION="help" ;;
+        --version) VPN_ACTION="version" ;;
+        --check) VPN_ACTION="check" ;;
+        --preview) VPN_ACTION="preview" ;;
+        *) printf 'Unknown option / Onbekende optie: %s\n' "$1" >&2; exit 2 ;;
+    esac
+    shift
+done
+if [[ -n "$VPN_LANG" && "$VPN_LANG" != "nl" && "$VPN_LANG" != "en" ]]; then
+    printf 'Unknown language / Onbekende taal: %s (nl/en)\n' "$VPN_LANG" >&2
+    exit 2
+fi
 
-Supported by upstream script: Ubuntu >=22.04, Debian >=11,
-AlmaLinux/Rocky/CentOS >=9, Fedora (supported packages).
-WARNING: Existing 2015-style /etc/openvpn/server.conf installations are NOT
-upgraded automatically. Back up files and migrate explicitly.
-DO NOT run the interactive installer over an active VPN without backups.
-HELP
+if [[ -z "$VPN_LANG" && ( -z "$VPN_ACTION" || "$VPN_ACTION" == "preview" ) ]]; then
+    printf '\nOpenVPN Installer - sosaklingo\n'
+    printf 'Kies je taal / Choose your language:\n'
+    printf '  1) Nederlands\n  2) English\n'
+    read -r -p 'Taal / Language [1]: ' user_lang || exit 1
+    case "$user_lang" in
+        1|"") VPN_LANG="nl" ;;
+        2) VPN_LANG="en" ;;
+        *) printf 'Ongeldige keuze / Invalid selection.\n' >&2; exit 2 ;;
+    esac
+fi
+VPN_LANG="${VPN_LANG:-nl}"
+# L english dutch -> localized string; no eval and no substitutions.
+L() { if [[ "$VPN_LANG" == "nl" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+say() { printf '%s\n' "$(L "$1" "$2")"; }
+
+show_help() {
+    printf 'OpenVPN Installer - sosaklingo (2026)\n'
+    printf '%s\n' "$(L 'One installer, English and Dutch.' 'Eén installatieprogramma, Nederlands en Engels.')"
+    printf '%s\n' "$(L 'Usage:' 'Gebruik:')"
+    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview]\n'
+    printf '  sudo bash openvpn-install.sh --lang nl\n'
+    printf '  sudo bash openvpn-install.sh --lang en\n\n'
+    say 'Without options you can choose a language and follow the menu.' 'Zonder opties kies je eerst je taal en volg je het menu.'
+    say '--preview displays the menu without modifying your system.' '--preview toont het menu zonder iets aan je systeem te wijzigen.'
+    say '--check performs a read-only basic environment check.' '--check voert een eenvoudige alleen-lezen systeemcontrole uit.'
+    say 'Supports Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ and Fedora.' 'Geschikt voor Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ en Fedora.'
+    say 'Do not use on a live VPN server without a backup and console access.' 'Niet uitvoeren op een actieve VPN-server zonder back-up en consoletoegang.'
+    say 'Legacy 2015 server layouts are not migrated automatically.' 'Oude serverindelingen uit 2015 worden niet automatisch gemigreerd.'
 }
 
 readonly MAINTAINER_VERSION="2026-11-sosaklingo"
-case "$1" in
-    --help|-h) show_help; exit 0 ;;
-    --version) printf 'openvpn-install %s\nUpstream: Nyr/openvpn-install @ 7ff931a00c37a6806bd1fa8cb61bf3369d963e94\n' "$MAINTAINER_VERSION"; exit 0 ;;
-    --check)
-        printf 'OpenVPN installer read-only preflight (%s)\n' "$MAINTAINER_VERSION"
+case "$VPN_ACTION" in
+    help) show_help; exit 0 ;;
+    version)
+        printf 'openvpn-install %s\nUpstream: Nyr/openvpn-install @ 7ff931a00c37a6806bd1fa8cb61bf3369d963e94\n' "$MAINTAINER_VERSION"
+        exit 0 ;;
+    preview)
+        printf '\n'
+        say 'OpenVPN easy setup' 'OpenVPN eenvoudige installatie'
+        say '1. Check your server (no changes)' '1. Controleer je server (geen wijzigingen)'
+        say '2. Choose protocol (default: UDP)' '2. Kies protocol (standaard: UDP)'
+        say '3. Choose port (default: 1194)' '3. Kies poort (standaard: 1194)'
+        say '4. Choose DNS and client name' '4. Kies DNS en clientnaam'
+        say '5. Confirm installation' '5. Bevestig de installatie'
+        say 'No changes were made.' 'Er zijn geen wijzigingen aangebracht.'
+        exit 0 ;;
+    check)
+        printf '%s\n' "$(L 'Read-only OpenVPN installer check' 'OpenVPN systeemcontrole (alleen lezen)')"
         failures=0
         for utility in bash grep sed ip tar sha256sum mktemp systemctl; do
             if command -v "$utility" >/dev/null 2>&1; then
@@ -44,26 +96,25 @@ case "$1" in
             fi
         done
         if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
-            printf '  OK   HTTPS-downloader aanwezig\n'
+            printf '  OK   curl/wget\n'
         else
             printf '  MISS curl/wget\n'
             failures=$((failures + 1))
         fi
         if [[ -r /etc/os-release ]]; then
             . /etc/os-release
-            printf '  Systeem: %s\n' "$PRETTY_NAME"
+            printf '  %s: %s\n' "$(L 'System' 'Systeem')" "$PRETTY_NAME"
         fi
         if [[ -f /etc/openvpn/server.conf && ! -e /etc/openvpn/server/server.conf ]]; then
-            printf '  WAARSCHUWING: oude /etc/openvpn/server.conf gevonden. Niet automatisch upgraden!\n'
+            say 'WARNING: legacy OpenVPN configuration found. No automatic migration.' 'WAARSCHUWING: oude OpenVPN-configuratie gevonden. Geen automatische migratie.'
         fi
         if [[ ! -e /dev/net/tun ]]; then
-            printf '  WAARSCHUWING: /dev/net/tun ontbreekt (installatie is hier niet mogelijk).\n'
+            say 'WARNING: /dev/net/tun is missing.' 'WAARSCHUWING: /dev/net/tun ontbreekt.'
         fi
-        printf 'Preflight uitgevoerd zonder instellingen te wijzigen.\n'
+        say 'The check did not modify the system.' 'De controle heeft het systeem niet gewijzigd.'
         [[ "$failures" -eq 0 ]] && exit 0 || exit 2
         ;;
     "") ;;
-    *) printf 'Onbekende optie: %s\n' "$1" >&2; show_help >&2; exit 2 ;;
 esac
 
 #
