@@ -2,7 +2,7 @@
 
 A maintained fork of [Nyr/openvpn-install](https://github.com/Nyr/openvpn-install), originally created by Nyr and distributed under the **MIT License**. The **sosaklingo** fork began in 2015 and was modernized in November 2026.
 
-> **Status:** review candidate. Static checks do **not** prove that installation or removal works on every supported Linux distribution. Test on a disposable VM before production.
+> **Status:** 2026 modernization with passing Bash syntax and safe smoke tests. These do **not** prove that installation or removal works on every supported Linux distribution. Test on a disposable VM before production.
 
 ## Supported environments
 
@@ -21,12 +21,12 @@ Upstream currently targets **Ubuntu 22.04+**, **Debian 11+**, **AlmaLinux / Rock
 
 ## Get started
 
-**Download and inspect the script before running anything as root.** For the current maintenance branch:
+**Download and inspect the script before running anything as root.** For the current default branch:
 
 ```bash
 curl -fL --proto '=https' --tlsv1.2 \
   -o openvpn-install.sh \
-  https://raw.githubusercontent.com/sosaklingo/openvpn-install/modern-2026/openvpn-install.sh
+  https://raw.githubusercontent.com/sosaklingo/openvpn-install/master/openvpn-install.sh
 bash -n openvpn-install.sh
 bash openvpn-install.sh --help
 bash openvpn-install.sh --check
