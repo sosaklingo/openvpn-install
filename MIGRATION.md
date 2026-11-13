@@ -16,4 +16,4 @@ The older script stores configuration in `/etc/openvpn/server.conf`, whereas the
 
 The modern script exits without installing when it finds the old `/etc/openvpn/server.conf` and no modern `/etc/openvpn/server/server.conf`.
 
-**No automatic migration, rollback, or production compatibility is promised.** Keep the original branch `master` for reference; do not run it on modern production systems.
+**No automatic migration, rollback, or production compatibility is promised.** The original code is preserved on the `legacy-2015` branch for reference; do not run it on modern production systems.
