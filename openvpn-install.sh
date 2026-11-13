@@ -53,6 +53,28 @@ VPN_LANG="${VPN_LANG:-nl}"
 L() { if [[ "$VPN_LANG" == "nl" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 say() { printf '%s\n' "$(L "$1" "$2")"; }
 
+# Make root-readable-only backups before modifying an existing OpenVPN tree.
+# This is a configuration backup, NOT a full firewall or package rollback.
+backup_existing_openvpn() {
+    local backup_dir="/var/backups/openvpn-sosaklingo" archive
+    if [[ ! -d /etc/openvpn ]]; then return 0; fi
+    if [[ -L "$backup_dir" ]]; then
+        say 'Backup directory cannot be a symlink. Aborting.' 'Back-upmap mag geen symbolische link zijn. Gestopt.' >&2
+        return 1
+    fi
+    if ! install -d -m 0700 -- "$backup_dir" || ! chmod 0700 -- "$backup_dir"; then
+        say 'Cannot create a protected backup directory. Aborting.' 'Afgeschermde back-upmap maken mislukt. Gestopt.' >&2
+        return 1
+    fi
+    archive=$(mktemp "$backup_dir/openvpn-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXXXX.tar.gz") || return 1
+    if ! tar -czf "$archive" -C /etc openvpn || ! chmod 0600 -- "$archive"; then
+        rm -f -- "$archive"
+        say 'Backup failed. No changes will be made.' 'Back-up mislukt. Er worden geen wijzigingen aangebracht.' >&2
+        return 1
+    fi
+    printf '%s %s\n' "$(L 'Protected configuration backup:' 'Afgeschermde configuratieback-up:')" "$archive"
+}
+
 show_help() {
     printf 'OpenVPN Installer - sosaklingo (2026)\n'
     printf '%s\n' "$(L 'One installer, English and Dutch.' 'Eén installatieprogramma, Nederlands en Engels.')"
@@ -281,7 +303,7 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	echo
 	say 'Which port should OpenVPN use?' 'Welke poort moet OpenVPN gebruiken?'
 	read -r -p "$(L 'Port [1194]: ' 'Poort [1194]: ')" port
-	until [[ -z "$port" || "$port" =~ ^[0-9]+$ && "$port" -le 65535 ]]; do
+	until [[ -z "$port" || ( "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ) ]]; do
 		printf '%s: %s\n' "$port" "$(L 'invalid port' 'ongeldige poort')"
 		read -r -p "$(L 'Port [1194]: ' 'Poort [1194]: ')" port
 	done
@@ -344,7 +366,18 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 			firewall="iptables"
 		fi
 	fi
-	read -n1 -r -p "$(L 'Press any key to continue...' 'Druk op een toets om verder te gaan...')"
+	printf '\n'
+	printf '%s %s, %s %s/UDP\n' "$(L 'Selected protocol:' 'Gekozen protocol:')" "$protocol" "$(L 'port:' 'poort:')" "$port"
+	read -r -p "$(L 'Type YES to install OpenVPN (anything else cancels): ' 'Typ JA om OpenVPN te installeren (anders annuleren): ')" confirm
+	if [[ ( "$VPN_LANG" == "nl" && "$confirm" != "JA" ) ||
+	      ( "$VPN_LANG" == "en" && "$confirm" != "YES" ) ]]; then
+		say 'Installation cancelled. No changes made.' 'Installatie geannuleerd. Geen wijzigingen aangebracht.'
+		exit 0
+	fi
+	# Back up any existing OpenVPN configuration before package and firewall changes.
+	if [[ -d /etc/openvpn ]]; then
+		backup_existing_openvpn || exit 1
+	fi
 	# If running inside a container, disable LimitNPROC to prevent conflicts
 	if systemd-detect-virt -cq; then
 		mkdir /etc/systemd/system/openvpn-server@server.service.d/ 2>/dev/null
@@ -622,6 +655,10 @@ else
 		printf '%s: %s\n' "$option" "$(L 'invalid selection' 'ongeldige keuze')"
 		read -r -p "$(L 'Option: ' 'Optie: ')" option
 	done
+	# Backup before client addition, revocation or removal (not when exiting).
+	if [[ "$option" =~ ^[123]$ ]]; then
+		backup_existing_openvpn || exit 1
+	fi
 	case "$option" in
 		1)
 			echo
