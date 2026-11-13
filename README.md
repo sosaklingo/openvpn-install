@@ -64,6 +64,9 @@ Do not execute this on an existing production server without backups, out-of-ban
 - `--preview` bekijkt de stappen zonder veranderingen / previews the steps without changes.
 - `--check` controleert het systeem zonder wijzigingen / performs a read-only preflight.
 - `--nl`, `--en`, `--lang nl`, `--lang en`: taal kiezen / language override.
+- Voor het installeren moet je **JA** (Nederlands) of **YES** (English) typen / explicit confirmation before install.
+- Bij aanpassingen aan bestaande OpenVPN-configuraties wordt een afgeschermde back-up gemaakt in `/var/backups/openvpn-sosaklingo/`. Alleen root krijgt toegang / protected root-only backup before changing existing configs.
+- De back-up bewaart **OpenVPN-configuratie en sleutels**, geen firewall of geïnstalleerde pakketten. Er is **geen automatische rollback** / configuration backup only, not a full-system rollback.
 - Modern OpenVPN `tls-crypt`, minimaal TLS 1.2, AES-256-GCM en AES-128-GCM.
 - Easy-RSA **3.2.7**, HTTPS-download en controle met de officiële SHA-256-hash.
 - Voorkomt automatische migratie van de indeling uit 2015 / blocks implicit legacy migration.
