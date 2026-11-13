@@ -159,12 +159,11 @@ fi
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 if [[ ! -e /etc/openvpn/server/server.conf ]]; then
-	# Detect some Debian minimal setups where neither wget nor curl are installed
-	if ! hash wget 2>/dev/null && ! hash curl 2>/dev/null; then
-		echo "Wget is required to use this installer."
-		read -n1 -r -p "Press any key to install Wget and continue..."
-		apt-get update
-		apt-get install -y wget
+	# HTTPS downloader must be installed before changing the server.
+	# Unlike the historical installer, this works consistently on Debian and RPM systems.
+	if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
+		echo 'Please install curl or wget first, then run the installer again.' >&2
+		exit 1
 	fi
 	clear
 	echo 'Welcome to this OpenVPN road warrior installer!'
@@ -355,12 +354,12 @@ LimitNPROC=infinity" > /etc/systemd/system/openvpn-server@server.service.d/disab
 		exit 1
 	fi
 	rm -f -- "$easy_rsa_archive"
-	chown -R root:root /etc/openvpn/server/easy-rsa/
-	cd /etc/openvpn/server/easy-rsa/
-	# Create the PKI, set up the CA and create TLS key
-	./easyrsa --batch init-pki
-	./easyrsa --batch build-ca nopass
-	./easyrsa gen-tls-crypt-key
+	chown -R root:root /etc/openvpn/server/easy-rsa/ || exit 1
+	cd /etc/openvpn/server/easy-rsa/ || exit 1
+	# PKI failures are fatal: never continue with half-created keys.
+	./easyrsa --batch init-pki || exit 1
+	./easyrsa --batch build-ca nopass || exit 1
+	./easyrsa gen-tls-crypt-key || exit 1
 	# Create the DH parameters file using the predefined ffdhe2048 group
 	echo '-----BEGIN DH PARAMETERS-----
 MIIBCAKCAQEA//////////+t+FRYortKmq/cViAnPTzx2LnFg84tNpWp4TZBFGQz
@@ -373,9 +372,9 @@ ssbzSibBsu/6iGtCOGEoXJf//////////wIBAg==
 	# Make easy-rsa aware of our external DH file (prevents a warning)
 	ln -s /etc/openvpn/server/dh.pem pki/dh.pem
 	# Create certificates and CRL
-	./easyrsa --batch --days=3650 build-server-full server nopass
-	./easyrsa --batch --days=3650 build-client-full "$client" nopass
-	./easyrsa --batch --days=3650 gen-crl
+	./easyrsa --batch --days=3650 build-server-full server nopass || exit 1
+	./easyrsa --batch --days=3650 build-client-full "$client" nopass || exit 1
+	./easyrsa --batch --days=3650 gen-crl || exit 1
 	# Move the stuff we need
 	cp pki/ca.crt pki/private/ca.key pki/issued/server.crt pki/private/server.key pki/crl.pem /etc/openvpn/server
 	cp pki/private/easyrsa-tls.key /etc/openvpn/server/tc.key
@@ -552,7 +551,10 @@ data-ciphers AES-256-GCM:AES-128-GCM
 ignore-unknown-option block-outside-dns
 verb 3" > /etc/openvpn/server/client-common.txt
 	# Enable and start the OpenVPN service
-	systemctl enable --now openvpn-server@server.service
+	if ! systemctl enable --now openvpn-server@server.service; then
+		echo 'Failed to start OpenVPN server. Check journalctl -u openvpn-server@server.service.' >&2
+		exit 1
+	fi
 	# Build the $client.ovpn file, stripping comments from easy-rsa in the process
 	grep -vh '^#' /etc/openvpn/server/client-common.txt /etc/openvpn/server/easy-rsa/pki/inline/private/"$client".inline > "$script_dir"/"$client".ovpn
 	echo
