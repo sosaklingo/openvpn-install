@@ -47,6 +47,26 @@ Kies de VPN-poort:                  / Choose the VPN port:
 - Zorg dat de gekozen **UDP- of TCP-poort** ook in een eventuele router, VPS-providerfirewall of cloud-firewall is toegestaan. Een poort kan daarnaast al door een andere dienst worden gebruikt.
 - Kies bij twijfel **UDP + 1194**; een andere poort op zichzelf maakt een VPN niet veiliger.
 
+### VPN-versleuteling kiezen / Choose VPN data encryption
+
+Na het poortmenu kies je met het nieuwe tweetalige menu de versleuteling van het **dataverkeer**:
+
+- **1 of Enter:** automatisch `AES-256-GCM:AES-128-GCM` (aanbevolen; OpenVPN onderhandelt een ondersteunde methode).
+- **2:** alleen `AES-256-GCM`.
+- **3:** alleen `AES-128-GCM`.
+- **4:** alleen `CHACHA20-POLY1305` (alleen als zowel de OpenVPN-server als alle clients dit ondersteunen).
+
+De gekozen lijst komt in **server.conf** en in het sjabloon **client-common.txt**, zodat nieuw aangemaakte clientprofielen overeenkomen. De installer controleert na installatie van het OpenVPN-pakket of de server de gekozen ciphers ondersteunt. Een mismatch met een client kan de verbinding verhinderen. Gebruik bij twijfel optie 1. Dit menu verandert de TLS-control-channel-beveiliging niet.
+
+**Zonder root of installatie testen / Test cipher selection without root or installation:**
+
+```bash
+bash openvpn-install.sh --lang nl --cipher-demo
+bash openvpn-install.sh --lang en --cipher-demo
+```
+
+Deze demonstratie wijzigt geen bestanden of netwerkregels.
+
 **Zonder installatie uitproberen / Try the port menu without installing:**
 
 ```bash
@@ -92,7 +112,7 @@ Do not execute this on an existing production server without backups, out-of-ban
 - Voor het installeren moet je **JA** (Nederlands) of **YES** (English) typen / explicit confirmation before install.
 - Bij aanpassingen aan bestaande OpenVPN-configuraties wordt een afgeschermde back-up gemaakt in `/var/backups/openvpn-sosaklingo/`. Alleen root krijgt toegang / protected root-only backup before changing existing configs.
 - De back-up bewaart **OpenVPN-configuratie en sleutels**, geen firewall of geïnstalleerde pakketten. Er is **geen automatische rollback** / configuration backup only, not a full-system rollback.
-- Modern OpenVPN `tls-crypt`, minimaal TLS 1.2, AES-256-GCM en AES-128-GCM.
+- Modern OpenVPN `tls-crypt`, minimaal TLS 1.2; keuzemenu voor automatische AES-GCM, uitsluitend AES-256-GCM, uitsluitend AES-128-GCM of ChaCha20-Poly1305 (indien ondersteund).
 - Easy-RSA **3.2.7**, HTTPS-download en controle met de officiële SHA-256-hash.
 - Voorkomt automatische migratie van de indeling uit 2015 / blocks implicit legacy migration.
 - `umask 077` beperkt toegang tot gemaakte configuratiebestanden / restricts file permissions.
