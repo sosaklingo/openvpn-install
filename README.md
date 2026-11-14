@@ -9,6 +9,26 @@ Maintenance version of Nyr's original MIT-licensed OpenVPN installer. The 2015 v
 
 > **Let op / Important:** De automatische Bash- en menutests slagen, maar een volledige installatie op echte servers is nog niet getest. Gebruik eerst een test-VM, maak een back-up en zorg voor consoletoegang. Passing CI does **not** prove a production install is safe.
 
+## Eén installatiebestand, met extra controles
+
+**Je installeert en beheert alles met hetzelfde bestand: `openvpn-install.sh`.** De scripts in `tests/` zijn uitsluitend voor GitHub-ontwikkeltests; je hoeft ze niet te installeren.
+
+Bij een nieuwe installatie blijft het menu eenvoudig: taal → VPN-protocol → poort → versleuteling → DNS → clientnaam → bevestigen. Extra veiligheidscontroles draaien automatisch op de achtergrond.
+
+Verbeteringen: strengere IPv4-, hostnaam- en eigen DNS-controle; duidelijke stopmelding bij pakket-/firewallfouten; minder kopieën van de geheime CA-sleutel, met beperkte bestandsrechten; beveiligde back-up van bestaande OpenVPN-instellingen; een alleen-lezen VPN-diagnose en een invoerzelftest.
+
+**Zonder iets te installeren testen:**
+
+```bash
+bash openvpn-install.sh --lang nl --preview
+bash openvpn-install.sh --lang nl --self-test
+bash openvpn-install.sh --lang nl --cipher-demo
+```
+
+**Na de installatie:** start hetzelfde Bash-bestand opnieuw en kies **5) VPN-diagnose bekijken**, of gebruik `sudo bash openvpn-install.sh --lang nl --diagnose`. Dit toont o.a. dienststatus, poort, protocol, dataversleuteling en waarschuwingen over DNS/IPv6. Het wijzigt niets.
+
+**Grenzen:** een mislukte installatie kan reeds gewijzigde pakketten of firewallregels achterlaten. De back-up is geen volledige rollback. DNS- en IPv6-lekbeveiliging zijn niet op alle clients gegarandeerd; test ze op een aangesloten apparaat. TLS 1.3-only, `tls-crypt-v2`, live wijziging van versleuteling en een offline CA zijn niet automatisch ingeschakeld omdat daarvoor migratie/compatibiliteit en aanvullende tests nodig zijn.
+
 ## Nederlands — snel beginnen
 
 **Geschikt voor:** Ubuntu 22.04+, Debian 11+ en actuele Fedora / AlmaLinux / Rocky Linux / CentOS 9+-systemen, afhankelijk van de beschikbare pakketten. Vereist een Linux-server met Bash, `sudo`, `systemd`, TUN en internettoegang.
@@ -117,7 +137,7 @@ Do not execute this on an existing production server without backups, out-of-ban
 - Voorkomt automatische migratie van de indeling uit 2015 / blocks implicit legacy migration.
 - `umask 077` beperkt toegang tot gemaakte configuratiebestanden / restricts file permissions.
 
-**Nog niet bewezen / Not yet proven:** echte installatie, volledige automatische rollback, firewallgedrag op alle distributies, DNS-lektests en langdurige VPN-verbindingen. See [SECURITY.md](SECURITY.md) and [MIGRATION.md](MIGRATION.md).
+**Nog niet bewezen / Not yet proven:** echte installatie, volledige automatische rollback, firewallgedrag op alle distributies, DNS-lektests, IPv6-lekbeveiliging en langdurige VPN-verbindingen. See [SECURITY.md](SECURITY.md) and [MIGRATION.md](MIGRATION.md).
 
 ## Tests
 

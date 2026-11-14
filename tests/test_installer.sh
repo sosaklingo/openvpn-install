@@ -96,6 +96,30 @@ for language in nl en; do
     fi
 done
 
+# Self-test and diagnosis require no installation or root privileges.
+for language in nl en; do
+    output=$(bash "$script" --lang "$language" --self-test) || fail "$language self-test"
+    [[ "$output" == *"geslaagd"* || "$output" == *"passed"* ]] || fail "self-test output"
+done
+set +e
+output=$(bash "$script" --lang nl --diagnose 2>&1)
+diagnose_status=$?
+set -e
+[[ "$output" == *"VPN-diagnose (alleen lezen)"* ]] || fail "Dutch diagnostic menu"
+[[ "$diagnose_status" == 0 || "$diagnose_status" == 2 ]] || fail "diagnose unexpected status"
+
+must_have 'valid_ipv4()'
+must_have 'valid_hostname()'
+must_have 'valid_menu_index()'
+must_have 'if ! valid_ipv4 "$ip"; then'
+must_have 'if ! valid_ipv4 "$dns_ip"; then'
+must_have 'if [[ -n "$public_ip" ]] && valid_endpoint "$public_ip"; then'
+must_have 'if ! apt-get update || ! apt-get install'
+must_have 'chmod 0600 /etc/openvpn/server/server.key'
+must_have '5) VPN-diagnose bekijken'
+must_have "Package installation failed"
+must_not_have 'cp pki/ca.crt pki/private/ca.key'
+
 must_have "tls-crypt tc.key"
 must_have "tls-version-min 1.2"
 must_have 'data-ciphers $data_ciphers'
@@ -124,4 +148,4 @@ must_not_have "comp-lzo"
 must_not_have "--no-check-certificate"
 must_not_have "http://ip1.dynupdate.no-ip.com/"
 
-echo "PASS: syntax, NL/EN interface, port/cipher menus, safe preview, flags and security policy"
+echo "PASS: syntax, NL/EN interface, port/cipher menus, input validation, diagnostics, safe preview and security policy"
