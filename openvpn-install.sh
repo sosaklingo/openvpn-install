@@ -536,15 +536,22 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		echo "[Service]
 LimitNPROC=infinity" > /etc/systemd/system/openvpn-server@server.service.d/disable-limitnproc.conf
 	fi
+	# Stop immediately on package failures; do not continue with a broken installation.
 	if [[ "$os" = "debian" || "$os" = "ubuntu" ]]; then
-		apt-get update
-		apt-get install -y --no-install-recommends openvpn openssl ca-certificates $firewall
+		if ! apt-get update || ! apt-get install -y --no-install-recommends openvpn openssl ca-certificates ${firewall:+$firewall}; then
+			say 'Package installation failed; partial changes may remain.' 'Pakketinstallatie mislukt; gedeeltelijke wijzigingen kunnen zijn achtergebleven.' >&2
+			exit 1
+		fi
 	elif [[ "$os" = "centos" ]]; then
-		dnf install -y epel-release
-		dnf install -y openvpn openssl ca-certificates tar $firewall
+		if ! dnf install -y epel-release || ! dnf install -y openvpn openssl ca-certificates tar ${firewall:+$firewall}; then
+			say 'Package installation failed; partial changes may remain.' 'Pakketinstallatie mislukt; gedeeltelijke wijzigingen kunnen zijn achtergebleven.' >&2
+			exit 1
+		fi
 	else
-		# Else, OS must be Fedora
-		dnf install -y openvpn openssl ca-certificates tar $firewall
+		if ! dnf install -y openvpn openssl ca-certificates tar ${firewall:+$firewall}; then
+			say 'Package installation failed; partial changes may remain.' 'Pakketinstallatie mislukt; gedeeltelijke wijzigingen kunnen zijn achtergebleven.' >&2
+			exit 1
+		fi
 	fi
 	# Fail closed if the selected cipher is unavailable in the installed OpenVPN build.
 	if ! command -v openvpn >/dev/null 2>&1; then
@@ -563,7 +570,10 @@ LimitNPROC=infinity" > /etc/systemd/system/openvpn-server@server.service.d/disab
 	done
 	# If firewalld was just installed, enable it
 	if [[ "$firewall" == "firewalld" ]]; then
-		systemctl enable --now firewalld.service
+		if ! systemctl enable --now firewalld.service; then
+			say 'Firewall startup failed; installation stopped.' 'Firewall starten mislukt; installatie gestopt.' >&2
+			exit 1
+		fi
 	fi
 	# Get easy-rsa
 	easy_rsa_url='https://github.com/OpenVPN/easy-rsa/releases/download/v3.2.7/EasyRSA-3.2.7.tgz'
@@ -622,8 +632,13 @@ ssbzSibBsu/6iGtCOGEoXJf//////////wIBAg==
 	./easyrsa --batch --days=3650 build-client-full "$client" nopass || exit 1
 	./easyrsa --batch --days=3650 gen-crl || exit 1
 	# Move the stuff we need
-	cp pki/ca.crt pki/private/ca.key pki/issued/server.crt pki/private/server.key pki/crl.pem /etc/openvpn/server
-	cp pki/private/easyrsa-tls.key /etc/openvpn/server/tc.key
+	# Keep the CA private key only in Easy-RSA's restricted private-key directory.
+	# Do not create an unnecessary second copy in the VPN service directory.
+	cp pki/ca.crt pki/issued/server.crt pki/private/server.key pki/crl.pem /etc/openvpn/server || exit 1
+	cp pki/private/easyrsa-tls.key /etc/openvpn/server/tc.key || exit 1
+	chmod 0700 /etc/openvpn/server/easy-rsa/pki/private || exit 1
+	chmod 0600 /etc/openvpn/server/server.key /etc/openvpn/server/tc.key /etc/openvpn/server/easy-rsa/pki/private/ca.key || exit 1
+	# The CA key remains on this host for convenient client management; protect backups.
 	# CRL is read with each client connection, while OpenVPN is dropped to nobody
 	chown nobody:"$group_name" /etc/openvpn/server/crl.pem
 	# Without +x in the directory, OpenVPN can't run a stat() on the CRL file
@@ -769,7 +784,10 @@ ExecStop=$ip6tables_path -w 5 -D FORWARD -m state --state RELATED,ESTABLISHED -j
 		echo "RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target" >> /etc/systemd/system/openvpn-iptables.service
-		systemctl enable --now openvpn-iptables.service
+		if ! systemctl enable --now openvpn-iptables.service; then
+			say 'Firewall setup failed; installation stopped.' 'Firewall instellen mislukt; installatie gestopt.' >&2
+			exit 1
+		fi
 	fi
 	# If SELinux is enabled and a custom port was selected, we need this
 	if sestatus 2>/dev/null | grep "Current mode" | grep -q "enforcing" && [[ "$port" != 1194 ]]; then
@@ -798,7 +816,7 @@ ignore-unknown-option block-outside-dns
 verb 3" > /etc/openvpn/server/client-common.txt
 	# Enable and start the OpenVPN service
 	if ! systemctl enable --now openvpn-server@server.service; then
-		say 'OpenVPN did not start. Check: journalctl -u openvpn-server@server.service' 'OpenVPN kon niet starten. Controleer: journalctl -u openvpn-server@server.service' >&2
+		say 'OpenVPN did not start. Check: journalctl -u openvpn-server@server.service. Partial changes may remain.' 'OpenVPN kon niet starten. Controleer journalctl -u openvpn-server@server.service. Gedeeltelijke wijzigingen kunnen zijn achtergebleven.' >&2
 		exit 1
 	fi
 	# Build the $client.ovpn file, stripping comments from easy-rsa in the process
@@ -817,8 +835,9 @@ else
 	say '   2) Revoke a VPN client' '   2) VPN-gebruiker intrekken'
 	say '   3) Remove OpenVPN' '   3) OpenVPN verwijderen'
 	say '   4) Exit' '   4) Afsluiten'
+	say '   5) Show VPN diagnostics (no changes)' '   5) VPN-diagnose bekijken (geen wijzigingen)'
 	read -r -p "$(L 'Option: ' 'Optie: ')" option
-	until [[ "$option" =~ ^[1-4]$ ]]; do
+	until [[ "$option" =~ ^[1-5]$ ]]; do
 		printf '%s: %s\n' "$option" "$(L 'invalid selection' 'ongeldige keuze')"
 		read -r -p "$(L 'Option: ' 'Optie: ')" option
 	done
@@ -941,6 +960,10 @@ else
 		;;
 		4)
 			exit
+		;;
+		5)
+			vpn_diagnose
+			exit $?
 		;;
 	esac
 fi
