@@ -45,18 +45,30 @@ check_port en $'2\n00080\n' 'Selected VPN port: 80'
 # Read-only cipher selection tests.
 check_cipher() {
     local language="$1" input="$2" expected="$3" output
-    output=$(printf '%s' "$input" | bash "$script" --lang "$language" --cipher-demo) ||
+    output=$(printf '%s\n' "$input" | bash "$script" --lang "$language" --cipher-demo) ||
         fail "cipher-demo failed for $language"
-    [[ "$output" == *"$expected"* ]] ||
-        fail "Expected cipher $expected, got $output"
+    [[ "$output" == *"$expected"* ]] || fail "Expected cipher $expected, got $output"
     [[ "$output" == *"geen instellingen gewijzigd"* || "$output" == *"no settings changed"* ]] ||
         fail "cipher-demo must be read-only"
 }
-check_cipher nl 
+check_cipher nl "" 'Gekozen dataversleuteling: AES-256-GCM:AES-128-GCM'
+check_cipher en "1" 'Selected data ciphers: AES-256-GCM:AES-128-GCM'
+check_cipher nl "2" 'Gekozen dataversleuteling: AES-256-GCM'
+check_cipher en "3" 'Selected data ciphers: AES-128-GCM'
+check_cipher nl "4" 'Gekozen dataversleuteling: CHACHA20-POLY1305'
+check_cipher en "4" 'Selected data ciphers: CHACHA20-POLY1305'
+
+set +e
+output=$(bash "$script" --lang en --cipher-demo </dev/null 2>&1)
+status=$?
+set -e
+[[ "$status" -ne 0 ]] || fail "cipher-demo must reject EOF before selection"
+
+set +e
+output=$(printf '2\n' | bash "$script" --lang nl --port-demo 2>&1)
 status=$?
 set -e
 [[ "$status" -ne 0 ]] || fail "port-demo must not accept EOF without a port"
-
 
 set +e
 output=$(bash "$script" --lang xx --preview 2>&1)
