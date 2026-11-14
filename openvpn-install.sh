@@ -31,6 +31,7 @@ while (($#)); do
         --port-demo) VPN_ACTION="port-demo" ;;
         --cipher-demo) VPN_ACTION="cipher-demo" ;;
         --diagnose) VPN_ACTION="diagnose" ;;
+        --self-test) VPN_ACTION="self-test" ;;
         *) printf 'Unknown option / Onbekende optie: %s\n' "$1" >&2; exit 2 ;;
     esac
     shift
@@ -80,7 +81,12 @@ valid_hostname() {
 }
 
 valid_endpoint() {
-    valid_ipv4 "$1" || valid_hostname "$1"
+    # A dotted numeric string is an IP, never a hostname; reject invalid octets.
+    if [[ "$1" =~ ^[0-9.]+$ ]]; then
+        valid_ipv4 "$1"
+    else
+        valid_hostname "$1"
+    fi
 }
 
 vpn_diagnose() {
@@ -200,7 +206,7 @@ show_help() {
     printf 'OpenVPN Installer - sosaklingo (2026)\n'
     printf '%s\n' "$(L 'One installer, English and Dutch.' 'Eén installatieprogramma, Nederlands en Engels.')"
     printf '%s\n' "$(L 'Usage:' 'Gebruik:')"
-    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo|--cipher-demo|--diagnose]\n'
+    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo|--cipher-demo|--diagnose|--self-test]\n'
     printf '  sudo bash openvpn-install.sh --lang nl\n'
     printf '  sudo bash openvpn-install.sh --lang en\n\n'
     say 'Without options you can choose a language and follow the menu.' 'Zonder opties kies je eerst je taal en volg je het menu.'
@@ -209,6 +215,7 @@ show_help() {
     say '--cipher-demo tests encryption choices without root access.' '--cipher-demo test versleutelingskeuzes zonder administratorrechten.'
     say '--check performs a read-only basic environment check.' '--check voert een eenvoudige alleen-lezen systeemcontrole uit.'
     say '--diagnose displays VPN status without modifying settings.' '--diagnose toont VPN-status zonder wijzigingen.'
+    say '--self-test checks installer input validation without root access.' '--self-test controleert invoervalidatie zonder administratorrechten.'
     say 'Supports Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ and Fedora.' 'Geschikt voor Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ en Fedora.'
     say 'Do not use on a live VPN server without a backup and console access.' 'Niet uitvoeren op een actieve VPN-server zonder back-up en consoletoegang.'
     say 'Legacy 2015 server layouts are not migrated automatically.' 'Oude serverindelingen uit 2015 worden niet automatisch gemigreerd.'
@@ -237,6 +244,21 @@ case "$VPN_ACTION" in
         exit 0 ;;
     diagnose)
         vpn_diagnose; exit $? ;;
+    self-test)
+        failures=0
+        for address in "1.1.1.1" "192.168.1.15" "vpn.example.org"; do
+            valid_endpoint "$address" || failures=$((failures + 1))
+        done
+        for address in "999.2.3.4" "1.2.3.999" "test host" "-vpn.example" "vpn.example;bad" "example..net"; do
+            if valid_endpoint "$address"; then failures=$((failures + 1)); fi
+        done
+        if (( failures == 0 )); then
+            say 'Self-test passed; system unchanged.' 'Zelftest geslaagd; systeem niet gewijzigd.'
+            exit 0
+        else
+            printf '%s %d\n' "$(L 'Self-test failures:' 'Fouten in zelftest:')" "$failures" >&2
+            exit 2
+        fi ;;
     cipher-demo)
         choose_vpn_cipher || exit 1
         say 'Encryption selection test finished; no settings changed.' 'Versleutelingskeuze getest; er zijn geen instellingen gewijzigd.'
@@ -386,19 +408,25 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		[[ -z "$ip_number" ]] && ip_number="1"
 		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | sed -n "$ip_number"p)
 	fi
-	# If $ip is a private IP address, the server must be behind NAT
+	if ! valid_ipv4 "$ip"; then
+		say 'No valid local IPv4 address detected; installation stopped.' 'Geen geldig lokaal IPv4-adres gevonden; installatie gestopt.' >&2
+		exit 1
+	fi
+	# If $ip is a private IP address, the server must be behind NAT
 	if echo "$ip" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
 		echo
 		say 'This server is behind NAT. Enter the public IPv4 address or hostname.' 'Deze server staat achter NAT. Vul het openbare IPv4-adres of de hostnaam in.'
-		# Get public IP and sanitize with grep
-		get_public_ip=$(grep -m 1 -oE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' <<< "$(wget -T 10 -t 1 -4qO- "https://api.ipify.org" || curl -m 10 -4Ls "https://api.ipify.org")")
-		read -r -p "$(L "Public IPv4 address / hostname [$get_public_ip]: " "Openbaar IPv4-adres / hostnaam [$get_public_ip]: ")" public_ip
-		# If the checkip service is unavailable and user didn't provide input, ask again
-		until [[ -n "$get_public_ip" || -n "$public_ip" ]]; do
-			say 'Invalid input.' 'Ongeldige invoer.'
-			read -r -p "$(L 'Public IPv4 address / hostname: ' 'Openbaar IPv4-adres / hostnaam: ')" public_ip
+		# Only use the detected IP when it passes strict IPv4 validation.
+		get_public_ip=$( (curl -fL -m 10 -4sS 'https://api.ipify.org' || wget --https-only -T 10 -t 1 -4qO- 'https://api.ipify.org') 2>/dev/null | head -n 1)
+		valid_ipv4 "$get_public_ip" || get_public_ip=""
+		while :; do
+			read -r -p "$(L "Public IPv4 address / hostname [$get_public_ip]: " "Openbaar IPv4-adres / hostnaam [$get_public_ip]: ")" public_ip || exit 1
+			[[ -z "$public_ip" ]] && public_ip="$get_public_ip"
+			if [[ -n "$public_ip" ]] && valid_endpoint "$public_ip"; then
+				break
+			fi
+			say 'Invalid IPv4 address or hostname.' 'Ongeldig IPv4-adres of ongeldige hostnaam.'
 		done
-		[[ -z "$public_ip" ]] && public_ip="$get_public_ip"
 	fi
 	# If system has a single IPv6, it is selected automatically
 	if [[ $(ip -6 addr | grep -c 'inet6 [23]') -eq 1 ]]; then
@@ -453,27 +481,20 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		printf '%s: %s\n' "$dns" "$(L 'invalid selection' 'ongeldige keuze')"
 		read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns
 	done
-	# If the user selected custom resolvers, we deal with that here
+	# Custom DNS: reject the entire list if any address is malformed.
 	if [[ "$dns" = "8" ]]; then
-		echo
-		until [[ -n "$custom_dns" ]]; do
-			say 'Enter DNS servers (one or more IPv4 addresses, separated by commas or spaces):' 'Voer DNS-servers in (IPv4-adressen, gescheiden door komma of spatie):'
-			read -r -p "$(L 'DNS servers: ' 'DNS-servers: ')" dns_input
-			# Convert comma delimited to space delimited
-			dns_input=$(echo "$dns_input" | tr ',' ' ')
-			# Validate and build custom DNS IP list
+		while :; do
+			say 'Enter IPv4 DNS servers, separated by spaces or commas:' 'Voer IPv4-DNS-servers in, gescheiden door spaties of komma’s:'
+			read -r -p "$(L 'DNS servers: ' 'DNS-servers: ')" dns_input || exit 1
+			dns_input="${dns_input//,/ }"
+			custom_dns=""
+			dns_ok=true
 			for dns_ip in $dns_input; do
-				if [[ "$dns_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
-					if [[ -z "$custom_dns" ]]; then
-						custom_dns="$dns_ip"
-					else
-						custom_dns="$custom_dns $dns_ip"
-					fi
-				fi
+				if ! valid_ipv4 "$dns_ip"; then dns_ok=false; break; fi
+				custom_dns="${custom_dns:+$custom_dns }$dns_ip"
 			done
-			if [ -z "$custom_dns" ]; then
-				say 'Invalid input.' 'Ongeldige invoer.'
-			fi
+			if [[ "$dns_ok" == true && -n "$custom_dns" ]]; then break; fi
+			say 'Invalid DNS address. Try again.' 'Ongeldig DNS-adres. Probeer opnieuw.'
 		done
 	fi
 	echo
