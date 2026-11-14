@@ -30,6 +30,7 @@ while (($#)); do
         --preview) VPN_ACTION="preview" ;;
         --port-demo) VPN_ACTION="port-demo" ;;
         --cipher-demo) VPN_ACTION="cipher-demo" ;;
+        --diagnose) VPN_ACTION="diagnose" ;;
         *) printf 'Unknown option / Onbekende optie: %s\n' "$1" >&2; exit 2 ;;
     esac
     shift
@@ -54,6 +55,71 @@ VPN_LANG="${VPN_LANG:-nl}"
 # L english dutch -> localized string; no eval and no substitutions.
 L() { if [[ "$VPN_LANG" == "nl" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 say() { printf '%s\n' "$(L "$1" "$2")"; }
+
+# Validate addresses and names before inserting them into network configuration.
+valid_ipv4() {
+    local address="$1" octet
+    local -a parts
+    [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    IFS='.' read -r -a parts <<< "$address"
+    for octet in "${parts[@]}"; do
+        (( 10#$octet <= 255 )) || return 1
+    done
+}
+
+valid_hostname() {
+    local host="$1" label
+    local -a labels
+    [[ ${#host} -ge 1 && ${#host} -le 253 ]] || return 1
+    [[ "$host" =~ ^[A-Za-z0-9.-]+$ && "$host" != *..* ]] || return 1
+    IFS='.' read -r -a labels <<< "$host"
+    for label in "${labels[@]}"; do
+        [[ ${#label} -ge 1 && ${#label} -le 63 &&
+           "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || return 1
+    done
+}
+
+valid_endpoint() {
+    valid_ipv4 "$1" || valid_hostname "$1"
+}
+
+vpn_diagnose() {
+    local config="/etc/openvpn/server/server.conf" common="/etc/openvpn/server/client-common.txt"
+    printf '\n'
+    say 'VPN diagnostics (read only)' 'VPN-diagnose (alleen lezen)'
+    if [[ ! -r "$config" ]]; then
+        say 'No readable VPN configuration (use sudo if needed).' 'Geen leesbare VPN-configuratie (gebruik eventueel sudo).'
+        return 2
+    fi
+    local key value
+    for key in proto port data-ciphers tls-version-min; do
+        value=$(sed -n "s/^${key} //p" "$config" | head -n 1)
+        printf '  %-17s %s\n' "$key" "${value:-?}"
+    done
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet openvpn-server@server.service; then
+            say 'Service: running' 'Dienst: actief'
+        else
+            say 'Service: NOT running' 'Dienst: NIET actief'
+        fi
+    fi
+    if [[ -r /proc/sys/net/ipv4/ip_forward ]]; then
+        if [[ "$(< /proc/sys/net/ipv4/ip_forward)" == 1 ]]; then
+            say 'IPv4 forwarding: enabled' 'IPv4-doorsturen: ingeschakeld'
+        else
+            say 'WARNING: IPv4 forwarding disabled' 'WAARSCHUWING: IPv4-doorsturen uitgeschakeld'
+        fi
+    fi
+    if [[ -r "$common" ]]; then
+        say 'Client template: present' 'Clientprofielsjabloon: aanwezig'
+    else
+        say 'WARNING: client template missing' 'WAARSCHUWING: clientprofielsjabloon ontbreekt'
+    fi
+    if ! grep -q '^server-ipv6 ' "$config"; then
+        say 'WARNING: VPN IPv6 is not configured. Test client IPv6 leak protection.' 'WAARSCHUWING: VPN-IPv6 niet ingesteld. Test IPv6-lekbeveiliging op clients.'
+    fi
+    say 'Test DNS and IPv6 leaks from your connected device.' 'Test DNS- en IPv6-lekken vanaf je verbonden apparaat.'
+}
 
 # Port selection is independent from root privileges, so it can be tested safely.
 # A blank choice uses default UDP/TCP port 1194; custom ports must be 1-65535.
@@ -134,7 +200,7 @@ show_help() {
     printf 'OpenVPN Installer - sosaklingo (2026)\n'
     printf '%s\n' "$(L 'One installer, English and Dutch.' 'Eén installatieprogramma, Nederlands en Engels.')"
     printf '%s\n' "$(L 'Usage:' 'Gebruik:')"
-    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo|--cipher-demo]\n'
+    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo|--cipher-demo|--diagnose]\n'
     printf '  sudo bash openvpn-install.sh --lang nl\n'
     printf '  sudo bash openvpn-install.sh --lang en\n\n'
     say 'Without options you can choose a language and follow the menu.' 'Zonder opties kies je eerst je taal en volg je het menu.'
@@ -142,6 +208,7 @@ show_help() {
     say '--port-demo tests standard/custom ports without root access.' '--port-demo test standaard- of eigen poort zonder administratorrechten.'
     say '--cipher-demo tests encryption choices without root access.' '--cipher-demo test versleutelingskeuzes zonder administratorrechten.'
     say '--check performs a read-only basic environment check.' '--check voert een eenvoudige alleen-lezen systeemcontrole uit.'
+    say '--diagnose displays VPN status without modifying settings.' '--diagnose toont VPN-status zonder wijzigingen.'
     say 'Supports Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ and Fedora.' 'Geschikt voor Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ en Fedora.'
     say 'Do not use on a live VPN server without a backup and console access.' 'Niet uitvoeren op een actieve VPN-server zonder back-up en consoletoegang.'
     say 'Legacy 2015 server layouts are not migrated automatically.' 'Oude serverindelingen uit 2015 worden niet automatisch gemigreerd.'
@@ -168,6 +235,8 @@ case "$VPN_ACTION" in
         choose_vpn_port || exit 1
         say 'Port selection test finished; no settings changed.' 'Poortkeuze getest; er zijn geen instellingen gewijzigd.'
         exit 0 ;;
+    diagnose)
+        vpn_diagnose; exit $? ;;
     cipher-demo)
         choose_vpn_cipher || exit 1
         say 'Encryption selection test finished; no settings changed.' 'Versleutelingskeuze getest; er zijn geen instellingen gewijzigd.'
