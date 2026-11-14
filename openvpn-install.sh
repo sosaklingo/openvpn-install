@@ -89,6 +89,11 @@ valid_endpoint() {
     fi
 }
 
+valid_menu_index() {
+    local input="$1" limit="$2"
+    [[ "$input" =~ ^[0-9]{1,3}$ ]] && (( 10#$input >= 1 && 10#$input <= limit ))
+}
+
 vpn_diagnose() {
     local config="/etc/openvpn/server/server.conf" common="/etc/openvpn/server/client-common.txt"
     printf '\n'
@@ -120,6 +125,9 @@ vpn_diagnose() {
         say 'Client template: present' 'Clientprofielsjabloon: aanwezig'
     else
         say 'WARNING: client template missing' 'WAARSCHUWING: clientprofielsjabloon ontbreekt'
+    fi
+    if ! grep -q '^push "dhcp-option DNS ' "$config"; then
+        say 'WARNING: no pushed DNS resolvers found. Check your DNS settings.' 'WAARSCHUWING: geen doorgestuurde DNS-servers gevonden. Controleer DNS-instellingen.'
     fi
     if ! grep -q '^server-ipv6 ' "$config"; then
         say 'WARNING: VPN IPv6 is not configured. Test client IPv6 leak protection.' 'WAARSCHUWING: VPN-IPv6 niet ingesteld. Test IPv6-lekbeveiliging op clients.'
@@ -251,6 +259,11 @@ case "$VPN_ACTION" in
         done
         for address in "999.2.3.4" "1.2.3.999" "test host" "-vpn.example" "vpn.example;bad" "example..net"; do
             if valid_endpoint "$address"; then failures=$((failures + 1)); fi
+        done
+        valid_menu_index "1" 5 || failures=$((failures + 1))
+        valid_menu_index "005" 5 || failures=$((failures + 1))
+        for index in "0" "6" "-1" "abc" "99999"; do
+            if valid_menu_index "$index" 5; then failures=$((failures + 1)); fi
         done
         if (( failures == 0 )); then
             say 'Self-test passed; system unchanged.' 'Zelftest geslaagd; systeem niet gewijzigd.'
@@ -400,10 +413,10 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		echo
 		say 'Which IPv4 address should OpenVPN use?' 'Welk IPv4-adres moet OpenVPN gebruiken?'
 		ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | nl -s ') '
-		read -r -p "$(L 'IPv4 address [1]: ' 'IPv4-adres [1]: ')" ip_number
-		until [[ -z "$ip_number" || "$ip_number" =~ ^[0-9]+$ && "$ip_number" -le "$number_of_ip" ]]; do
+		read -r -p "$(L 'IPv4 address [1]: ' 'IPv4-adres [1]: ')" ip_number || exit 1
+		until [[ -z "$ip_number" ]] || valid_menu_index "$ip_number" "$number_of_ip"; do
 			printf '%s: %s\n' "$ip_number" "$(L 'invalid selection' 'ongeldige keuze')"
-			read -r -p "$(L 'IPv4 address [1]: ' 'IPv4-adres [1]: ')" ip_number
+			read -r -p "$(L 'IPv4 address [1]: ' 'IPv4-adres [1]: ')" ip_number || exit 1
 		done
 		[[ -z "$ip_number" ]] && ip_number="1"
 		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | sed -n "$ip_number"p)
@@ -438,10 +451,10 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 		echo
 		say 'Which IPv6 address should OpenVPN use?' 'Welk IPv6-adres moet OpenVPN gebruiken?'
 		ip -6 addr | grep 'inet6 [23]' | cut -d '/' -f 1 | grep -oE '([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}' | nl -s ') '
-		read -r -p "$(L 'IPv6 address [1]: ' 'IPv6-adres [1]: ')" ip6_number
-		until [[ -z "$ip6_number" || "$ip6_number" =~ ^[0-9]+$ && "$ip6_number" -le "$number_of_ip6" ]]; do
+		read -r -p "$(L 'IPv6 address [1]: ' 'IPv6-adres [1]: ')" ip6_number || exit 1
+		until [[ -z "$ip6_number" ]] || valid_menu_index "$ip6_number" "$number_of_ip6"; do
 			printf '%s: %s\n' "$ip6_number" "$(L 'invalid selection' 'ongeldige keuze')"
-			read -r -p "$(L 'IPv6 address [1]: ' 'IPv6-adres [1]: ')" ip6_number
+			read -r -p "$(L 'IPv6 address [1]: ' 'IPv6-adres [1]: ')" ip6_number || exit 1
 		done
 		[[ -z "$ip6_number" ]] && ip6_number="1"
 		ip6=$(ip -6 addr | grep 'inet6 [23]' | cut -d '/' -f 1 | grep -oE '([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}' | sed -n "$ip6_number"p)
@@ -450,10 +463,10 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	say 'Which protocol should OpenVPN use?' 'Welk protocol moet OpenVPN gebruiken?'
 	say '   1) UDP (recommended)' '   1) UDP (aanbevolen)'
 	echo "   2) TCP"
-	read -r -p "$(L 'Protocol [1]: ' 'Protocol [1]: ')" protocol
+	read -r -p "$(L 'Protocol [1]: ' 'Protocol [1]: ')" protocol || exit 1
 	until [[ -z "$protocol" || "$protocol" =~ ^[12]$ ]]; do
 		printf '%s: %s\n' "$protocol" "$(L 'invalid selection' 'ongeldige keuze')"
-		read -r -p "$(L 'Protocol [1]: ' 'Protocol [1]: ')" protocol
+		read -r -p "$(L 'Protocol [1]: ' 'Protocol [1]: ')" protocol || exit 1
 	done
 	case "$protocol" in
 		1|"") 
@@ -476,10 +489,10 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	echo "   6) Gcore"
 	echo "   7) AdGuard"
 	say '   8) Specify custom resolvers' '   8) Zelf DNS-servers invoeren'
-	read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns
+	read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns || exit 1
 	until [[ -z "$dns" || "$dns" =~ ^[1-8]$ ]]; do
 		printf '%s: %s\n' "$dns" "$(L 'invalid selection' 'ongeldige keuze')"
-		read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns
+		read -r -p "$(L 'DNS server [1]: ' 'DNS-server [1]: ')" dns || exit 1
 	done
 	# Custom DNS: reject the entire list if any address is malformed.
 	if [[ "$dns" = "8" ]]; then
