@@ -29,6 +29,7 @@ while (($#)); do
         --check) VPN_ACTION="check" ;;
         --preview) VPN_ACTION="preview" ;;
         --port-demo) VPN_ACTION="port-demo" ;;
+        --cipher-demo) VPN_ACTION="cipher-demo" ;;
         *) printf 'Unknown option / Onbekende optie: %s\n' "$1" >&2; exit 2 ;;
     esac
     shift
@@ -84,6 +85,29 @@ choose_vpn_port() {
     printf '%s %s\n' "$(L 'Selected VPN port:' 'Gekozen VPN-poort:')" "$port"
 }
 
+# Choose only modern authenticated-encryption (AEAD) ciphers.
+# Both server and client use the same list, and OpenVPN negotiates a common cipher.
+choose_vpn_cipher() {
+    local choice
+    printf '\n'
+    say 'Choose VPN data encryption:' 'Kies de VPN-dataversleuteling:'
+    say '   1) Automatic: AES-256-GCM / AES-128-GCM (recommended)' '   1) Automatisch: AES-256-GCM / AES-128-GCM (aanbevolen)'
+    say '   2) AES-256-GCM only' '   2) Alleen AES-256-GCM'
+    say '   3) AES-128-GCM only' '   3) Alleen AES-128-GCM'
+    say '   4) ChaCha20-Poly1305 only (requires client/server support)' '   4) Alleen ChaCha20-Poly1305 (ondersteuning op client/server vereist)'
+    while :; do
+        read -r -p "$(L 'Encryption [1]: ' 'Versleuteling [1]: ')" choice || return 1
+        case "$choice" in
+            ""|1) data_ciphers="AES-256-GCM:AES-128-GCM"; break ;;
+            2) data_ciphers="AES-256-GCM"; break ;;
+            3) data_ciphers="AES-128-GCM"; break ;;
+            4) data_ciphers="CHACHA20-POLY1305"; break ;;
+            *) say 'Choose 1, 2, 3 or 4.' 'Kies 1, 2, 3 of 4.' ;;
+        esac
+    done
+    printf '%s %s\n' "$(L 'Selected data ciphers:' 'Gekozen dataversleuteling:')" "$data_ciphers"
+}
+
 # Make root-readable-only backups before modifying an existing OpenVPN tree.
 # This is a configuration backup, NOT a full firewall or package rollback.
 backup_existing_openvpn() {
@@ -110,12 +134,13 @@ show_help() {
     printf 'OpenVPN Installer - sosaklingo (2026)\n'
     printf '%s\n' "$(L 'One installer, English and Dutch.' 'Eén installatieprogramma, Nederlands en Engels.')"
     printf '%s\n' "$(L 'Usage:' 'Gebruik:')"
-    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo]\n'
+    printf '  bash openvpn-install.sh [--lang nl|en] [--help|--version|--check|--preview|--port-demo|--cipher-demo]\n'
     printf '  sudo bash openvpn-install.sh --lang nl\n'
     printf '  sudo bash openvpn-install.sh --lang en\n\n'
     say 'Without options you can choose a language and follow the menu.' 'Zonder opties kies je eerst je taal en volg je het menu.'
     say '--preview displays the menu without modifying your system.' '--preview toont het menu zonder iets aan je systeem te wijzigen.'
     say '--port-demo tests standard/custom ports without root access.' '--port-demo test standaard- of eigen poort zonder administratorrechten.'
+    say '--cipher-demo tests encryption choices without root access.' '--cipher-demo test versleutelingskeuzes zonder administratorrechten.'
     say '--check performs a read-only basic environment check.' '--check voert een eenvoudige alleen-lezen systeemcontrole uit.'
     say 'Supports Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ and Fedora.' 'Geschikt voor Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ en Fedora.'
     say 'Do not use on a live VPN server without a backup and console access.' 'Niet uitvoeren op een actieve VPN-server zonder back-up en consoletoegang.'
@@ -134,13 +159,18 @@ case "$VPN_ACTION" in
         say '1. Check your server (no changes)' '1. Controleer je server (geen wijzigingen)'
         say '2. Choose protocol (default: UDP)' '2. Kies protocol (standaard: UDP)'
         say '3. Choose port 1194 or enter a custom port' '3. Kies poort 1194 of voer zelf een poort in'
-        say '4. Choose DNS and client name' '4. Kies DNS en clientnaam'
-        say '5. Confirm installation' '5. Bevestig de installatie'
+        say '4. Choose strong VPN data encryption' '4. Kies sterke VPN-dataversleuteling'
+        say '5. Choose DNS and client name' '5. Kies DNS en clientnaam'
+        say '6. Confirm installation' '6. Bevestig de installatie'
         say 'No changes were made.' 'Er zijn geen wijzigingen aangebracht.'
         exit 0 ;;
     port-demo)
         choose_vpn_port || exit 1
         say 'Port selection test finished; no settings changed.' 'Poortkeuze getest; er zijn geen instellingen gewijzigd.'
+        exit 0 ;;
+    cipher-demo)
+        choose_vpn_cipher || exit 1
+        say 'Encryption selection test finished; no settings changed.' 'Versleutelingskeuze getest; er zijn geen instellingen gewijzigd.'
         exit 0 ;;
     check)
         printf '%s\n' "$(L 'Read-only OpenVPN installer check' 'OpenVPN systeemcontrole (alleen lezen)')"
@@ -338,6 +368,7 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	esac
 	echo
 	choose_vpn_port || exit 1
+	choose_vpn_cipher || exit 1
 	echo
 	say 'Choose a DNS server for VPN clients:' 'Kies een DNS-server voor VPN-gebruikers:'
 	say '   1) Default system resolvers' '   1) DNS van het systeem (standaard)'
@@ -398,6 +429,7 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	fi
 	printf '\n'
 	printf '%s %s, %s %s\n' "$(L 'Selected protocol:' 'Gekozen protocol:')" "$protocol" "$(L 'port:' 'poort:')" "$port"
+	printf '%s %s\n' "$(L 'Data encryption:' 'Dataversleuteling:')" "$data_ciphers"
 	read -r -p "$(L 'Type YES to install OpenVPN (anything else cancels): ' 'Typ JA om OpenVPN te installeren (anders annuleren): ')" confirm
 	if [[ ( "$VPN_LANG" == "nl" && "$confirm" != "JA" ) ||
 	      ( "$VPN_LANG" == "en" && "$confirm" != "YES" ) ]]; then
@@ -424,6 +456,21 @@ LimitNPROC=infinity" > /etc/systemd/system/openvpn-server@server.service.d/disab
 		# Else, OS must be Fedora
 		dnf install -y openvpn openssl ca-certificates tar $firewall
 	fi
+	# Fail closed if the selected cipher is unavailable in the installed OpenVPN build.
+	if ! command -v openvpn >/dev/null 2>&1; then
+		say 'OpenVPN installation failed: binary missing.' 'OpenVPN-installatie mislukt: programma ontbreekt.' >&2
+		exit 1
+	fi
+	available_ciphers=$(openvpn --show-ciphers 2>/dev/null) || {
+		say 'Cannot check available OpenVPN ciphers.' 'Beschikbare OpenVPN-versleuteling kan niet worden gecontroleerd.' >&2
+		exit 1
+	}
+	for selected_cipher in ${data_ciphers//:/ }; do
+		if ! grep -Fq -- "$selected_cipher" <<< "$available_ciphers"; then
+			printf '%s %s\n' "$(L 'Unsupported OpenVPN cipher:' 'OpenVPN ondersteunt deze versleuteling niet:')" "$selected_cipher" >&2
+			exit 1
+		fi
+	done
 	# If firewalld was just installed, enable it
 	if [[ "$firewall" == "firewalld" ]]; then
 		systemctl enable --now firewalld.service
@@ -503,7 +550,7 @@ dh dh.pem
 auth SHA512
 tls-crypt tc.key
 tls-version-min 1.2
-data-ciphers AES-256-GCM:AES-128-GCM
+data-ciphers $data_ciphers
 topology subnet
 server 10.8.0.0 255.255.255.0" > /etc/openvpn/server/server.conf
 	# IPv6
@@ -656,7 +703,7 @@ persist-tun
 remote-cert-tls server
 auth SHA512
 tls-version-min 1.2
-data-ciphers AES-256-GCM:AES-128-GCM
+data-ciphers $data_ciphers
 ignore-unknown-option block-outside-dns
 verb 3" > /etc/openvpn/server/client-common.txt
 	# Enable and start the OpenVPN service

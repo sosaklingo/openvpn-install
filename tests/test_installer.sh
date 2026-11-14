@@ -42,6 +42,28 @@ check_port en $'2\n999999999999999999\n8080\n' 'Selected VPN port: 8080'
 check_port nl $'3\n2\n8443\n' 'Gekozen VPN-poort: 8443'
 check_port en $'2\n00080\n' 'Selected VPN port: 80'
 
+# Read-only cipher-selection menu tests.
+check_cipher() {
+    local language="$1" input="$2" expected="$3" output
+    output=$(printf '%s\n' "$input" | bash "$script" --lang "$language" --cipher-demo) ||
+        fail "cipher-demo failed for $language"
+    [[ "$output" == *"$expected"* ]] || fail "Expected cipher $expected, got $output"
+    [[ "$output" == *"geen instellingen gewijzigd"* || "$output" == *"no settings changed"* ]] ||
+        fail "cipher-demo must be read-only"
+}
+check_cipher nl "" 'Gekozen dataversleuteling: AES-256-GCM:AES-128-GCM'
+check_cipher en "1" 'Selected data ciphers: AES-256-GCM:AES-128-GCM'
+check_cipher nl "2" 'Gekozen dataversleuteling: AES-256-GCM'
+check_cipher en "3" 'Selected data ciphers: AES-128-GCM'
+check_cipher nl "4" 'Gekozen dataversleuteling: CHACHA20-POLY1305'
+check_cipher en "4" 'Selected data ciphers: CHACHA20-POLY1305'
+
+set +e
+output=$(bash "$script" --lang en --cipher-demo </dev/null 2>&1)
+status=$?
+set -e
+[[ "$status" -ne 0 ]] || fail "cipher-demo must reject EOF before selection"
+
 set +e
 output=$(printf '2\n' | bash "$script" --lang nl --port-demo 2>&1)
 status=$?
@@ -76,7 +98,13 @@ done
 
 must_have "tls-crypt tc.key"
 must_have "tls-version-min 1.2"
-must_have "data-ciphers AES-256-GCM:AES-128-GCM"
+must_have 'data-ciphers $data_ciphers'
+must_have 'data_ciphers="AES-256-GCM:AES-128-GCM"'
+must_have 'data_ciphers="AES-256-GCM"'
+must_have 'data_ciphers="AES-128-GCM"'
+must_have 'data_ciphers="CHACHA20-POLY1305"'
+must_have 'available_ciphers=$(openvpn --show-ciphers 2>/dev/null)'
+must_have 'choose_vpn_cipher || exit 1'
 must_have "EasyRSA-3.2.7.tgz"
 must_have "308743bc9fe871b902d47dbe98d749daff3a05b27531684f02625ce7208d4598"
 must_have "sha256sum --check --status"
@@ -96,4 +124,4 @@ must_not_have "comp-lzo"
 must_not_have "--no-check-certificate"
 must_not_have "http://ip1.dynupdate.no-ip.com/"
 
-echo "PASS: syntax, NL/EN interface, safe preview, flags and security policy"
+echo "PASS: syntax, NL/EN interface, port/cipher menus, safe preview, flags and security policy"
