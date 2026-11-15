@@ -206,3 +206,104 @@ echo "PASS: syntax, NL/EN interface, port/cipher menus, input validation, diagno
     done
 )
 echo "PASS: failure injection, atomic profile/CRL publishing and revocation index bounds"
+
+# Recovery tests use a synthetic PKI and a fake Easy-RSA executable.
+(
+    sandbox_dir=$(mktemp -d)
+    trap 'rm -rf -- "$sandbox_dir"' EXIT
+    source <(sed -n '/^operation_failed()/,/^# Validate addresses/{ /^# Validate addresses/!p; }' "$script")
+    say() { printf '%s\n' "$1"; }
+    L() { printf '%s' "$1"; }
+    root="$sandbox_dir/server"
+    mkdir -p "$root/easy-rsa/pki/private"
+    for relative in server.conf ca.crt server.crt server.key dh.pem tc.key crl.pem         client-common.txt easy-rsa/easyrsa easy-rsa/pki/ca.crt         easy-rsa/pki/private/ca.key easy-rsa/pki/index.txt; do
+        printf 'fixture\n' > "$root/$relative"
+    done
+    installation_files_complete "$root" || fail "complete fixture misclassified"
+    rm "$root/server.key"
+    if installation_files_complete "$root" 2>/dev/null; then fail "missing key accepted"; fi
+    : > "$root/server.key"
+    if installation_files_complete "$root" 2>/dev/null; then fail "empty key accepted"; fi
+
+    printf 'old CRL\n' > "$root/crl.pem"
+    printf 'alice\n' > "$root/.crl-update-pending"
+    printf 'V\texpiry\t\t01\tunknown\t/CN=alice\n' > "$root/easy-rsa/pki/index.txt"
+    cat > "$root/easy-rsa/easyrsa" <<'FAKE'
+#!/usr/bin/env bash
+[[ ! -e fail-generation ]] || exit 1
+printf 'new CRL\n' > pki/crl.pem
+FAKE
+    chmod +x "$root/easy-rsa/easyrsa"
+    owner="$(id -u):$(id -g)"
+    if refresh_revocations "$root" "$owner" >/dev/null 2>&1; then fail "unrevoked client reported repaired"; fi
+    [[ -e "$root/.crl-update-pending" ]] || fail "lost pending revocation"
+    printf 'R\texpiry\tdate\t01\tunknown\t/CN=alice\n' > "$root/easy-rsa/pki/index.txt"
+    touch "$root/easy-rsa/fail-generation"
+    if refresh_revocations "$root" "$owner"; then fail "failed CRL generation accepted"; fi
+    [[ $(cat "$root/crl.pem") == 'old CRL' && -e "$root/.crl-update-pending" ]] || fail "generation failure lost recovery state"
+    rm "$root/easy-rsa/fail-generation"
+    (
+        mv() { return 1; }
+        if refresh_revocations "$root" "$owner"; then fail "failed CRL publication accepted"; fi
+    ) || fail "publication failure injection"
+    [[ $(cat "$root/crl.pem") == 'old CRL' && -e "$root/.crl-update-pending" ]] || fail "publication failure lost recovery state"
+    refresh_revocations "$root" "$owner" || fail "revocation retry failed"
+    [[ $(cat "$root/crl.pem") == 'new CRL' && ! -e "$root/.crl-update-pending" ]] || fail "recovery not completed"
+    refresh_revocations "$root" "$owner" || fail "repeat recovery not idempotent"
+
+    # Exercise the actual protection guard against rerunning an incomplete install.
+    sed -n '/^# Do not treat an interrupted install/,/^if \[\[ ! -e \/etc\/openvpn\/server\/server.conf \]\]; then/p' "$script" |
+        sed '$d' | sed "s|/etc/openvpn|$sandbox_dir/openvpn|g" > "$sandbox_dir/guard.sh"
+    mkdir -p "$sandbox_dir/openvpn/server/easy-rsa"
+    printf 'existing private key\n' > "$sandbox_dir/openvpn/server/easy-rsa/key"
+    export -f say
+    set +e
+    bash "$sandbox_dir/guard.sh" > "$sandbox_dir/guard-output" 2>&1
+    guard_status=$?
+    set -e
+    [[ $guard_status == 3 ]] || fail "incomplete installation was not blocked"
+    [[ $(cat "$sandbox_dir/openvpn/server/easy-rsa/key") == 'existing private key' ]] || fail "guard modified PKI"
+)
+echo "PASS: incomplete installation guard and revocation recovery after generation/publication failures"
+
+# Run the actual removal branch with service/package/file operations mocked.
+(
+    sandbox_dir=$(mktemp -d)
+    trap 'rm -rf -- "$sandbox_dir"' EXIT
+    sed -n '/^operation_failed()/,/^# Validate addresses/{ /^# Validate addresses/!p; }' "$script" > "$sandbox_dir/helpers.sh"
+    awk '/read -r -p.*Remove OpenVPN/ {active=1} active && /^\t\t;;/ {exit} active {print}' "$script" > "$sandbox_dir/remove.sh"
+    cat > "$sandbox_dir/driver.sh" <<'DRIVER'
+source "$1/helpers.sh"
+L() { printf '%s' "$1"; }
+say() { printf '%s\n' "$1"; }
+systemctl() {
+    [[ "$1" != is-active ]] || return 1
+    [[ "$failure_command" != systemctl ]]
+}
+apt-get() { [[ "$failure_command" != apt-get ]]; }
+rm() { [[ "$failure_command" != rm ]]; }
+sestatus() { return 1; }
+grep() {
+    case "$1" in
+        '^port ') printf 'port 1194\n' ;;
+        '^proto ') printf 'proto udp\n' ;;
+        *) return 1 ;;
+    esac
+}
+os=debian
+source "$1/remove.sh"
+DRIVER
+    for failure_command in systemctl apt-get rm none; do
+        export failure_command
+        set +e
+        output=$(printf 'y\n' | bash "$sandbox_dir/driver.sh" "$sandbox_dir" 2>&1)
+        removal_status=$?
+        set -e
+        if [[ "$failure_command" == none ]]; then
+            [[ $removal_status == 0 && "$output" == *'OpenVPN removed.'* ]] || fail "mock removal success"
+        else
+            [[ $removal_status != 0 && "$output" != *'OpenVPN removed.'* ]] || fail "removal ignored $failure_command error"
+        fi
+    done
+)
+echo "PASS: removal aborts on service, package and file-operation failures"
