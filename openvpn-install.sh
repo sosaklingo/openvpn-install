@@ -57,6 +57,43 @@ VPN_LANG="${VPN_LANG:-nl}"
 L() { if [[ "$VPN_LANG" == "nl" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 say() { printf '%s\n' "$(L "$1" "$2")"; }
 
+# Stop on failed mutations; never report success after a partial operation.
+operation_failed() {
+    say 'Operation failed; stopped. Partial changes may remain. Check the error before retrying.' 'Bewerking mislukt; gestopt. Gedeeltelijke wijzigingen kunnen zijn achtergebleven. Controleer de fout voordat je opnieuw probeert.' >&2
+    exit 1
+}
+
+run_checked() {
+    "$@" || operation_failed
+}
+
+# Publish a complete, private client profile using a same-directory rename.
+export_client_profile() {
+    local destination="$1" template="$2" inline="$3" temporary
+    temporary=$(mktemp "${destination}.tmp.XXXXXXXX") || return 1
+    if ! grep -vh '^#' "$template" "$inline" > "$temporary" ||
+       [[ ! -s "$temporary" ]] ||
+       ! chmod 0600 "$temporary" ||
+       ! mv -fT -- "$temporary" "$destination"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+}
+
+# Keep the currently served CRL until its replacement is ready.
+publish_crl() {
+    local source="$1" destination="$2" owner="$3" temporary
+    [[ -s "$source" ]] || return 1
+    temporary=$(mktemp "${destination}.tmp.XXXXXXXX") || return 1
+    if ! cp -- "$source" "$temporary" ||
+       ! chown "$owner" "$temporary" ||
+       ! chmod 0600 "$temporary" ||
+       ! mv -fT -- "$temporary" "$destination"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+}
+
 # Validate addresses and names before inserting them into network configuration.
 valid_ipv4() {
     local address="$1" octet
@@ -750,18 +787,18 @@ crl-verify crl.pem" >> /etc/openvpn/server/server.conf
 		# reload.
 		# We don't use --add-service=openvpn because that would only work with
 		# the default port and protocol.
-		firewall-cmd --add-port="$port"/"$protocol"
-		firewall-cmd --zone=trusted --add-source=10.8.0.0/24
-		firewall-cmd --permanent --add-port="$port"/"$protocol"
-		firewall-cmd --permanent --zone=trusted --add-source=10.8.0.0/24
+		run_checked firewall-cmd --add-port="$port"/"$protocol"
+		run_checked firewall-cmd --zone=trusted --add-source=10.8.0.0/24
+		run_checked firewall-cmd --permanent --add-port="$port"/"$protocol"
+		run_checked firewall-cmd --permanent --zone=trusted --add-source=10.8.0.0/24
 		# Set NAT for the VPN subnet
-		firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
-		firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
+		run_checked firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
+		run_checked firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
 		if [[ -n "$ip6" ]]; then
-			firewall-cmd --zone=trusted --add-source=fddd:1194:1194:1194::/64
-			firewall-cmd --permanent --zone=trusted --add-source=fddd:1194:1194:1194::/64
-			firewall-cmd --direct --add-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
-			firewall-cmd --permanent --direct --add-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
+			run_checked firewall-cmd --zone=trusted --add-source=fddd:1194:1194:1194::/64
+			run_checked firewall-cmd --permanent --zone=trusted --add-source=fddd:1194:1194:1194::/64
+			run_checked firewall-cmd --direct --add-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
+			run_checked firewall-cmd --permanent --direct --add-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
 		fi
 	else
 		# Create a service to set up persistent iptables rules
@@ -833,7 +870,7 @@ verb 3" > /etc/openvpn/server/client-common.txt
 		exit 1
 	fi
 	# Build the $client.ovpn file, stripping comments from easy-rsa in the process
-	grep -vh '^#' /etc/openvpn/server/client-common.txt /etc/openvpn/server/easy-rsa/pki/inline/private/"$client".inline > "$script_dir"/"$client".ovpn
+	export_client_profile "$script_dir/$client.ovpn" /etc/openvpn/server/client-common.txt "/etc/openvpn/server/easy-rsa/pki/inline/private/$client.inline" || operation_failed
 	echo
 	say 'Installation completed!' 'Installatie voltooid!'
 	echo
@@ -849,10 +886,10 @@ else
 	say '   3) Remove OpenVPN' '   3) OpenVPN verwijderen'
 	say '   4) Exit' '   4) Afsluiten'
 	say '   5) Show VPN diagnostics (no changes)' '   5) VPN-diagnose bekijken (geen wijzigingen)'
-	read -r -p "$(L 'Option: ' 'Optie: ')" option
+	read -r -p "$(L 'Option: ' 'Optie: ')" option || exit 1
 	until [[ "$option" =~ ^[1-5]$ ]]; do
 		printf '%s: %s\n' "$option" "$(L 'invalid selection' 'ongeldige keuze')"
-		read -r -p "$(L 'Option: ' 'Optie: ')" option
+		read -r -p "$(L 'Option: ' 'Optie: ')" option || exit 1
 	done
 	# Backup before client addition, revocation or removal (not when exiting).
 	if [[ "$option" =~ ^[123]$ ]]; then
@@ -862,55 +899,51 @@ else
 		1)
 			echo
 			say 'Enter a name for the VPN client:' 'Voer een naam in voor de VPN-gebruiker:'
-			read -r -p "$(L 'Name: ' 'Naam: ')" unsanitized_client
+			read -r -p "$(L 'Name: ' 'Naam: ')" unsanitized_client || exit 1
 			client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 			while [[ -z "$client" || -e /etc/openvpn/server/easy-rsa/pki/issued/"$client".crt ]]; do
 				printf '%s: %s\n' "$client" "$(L 'invalid client name' 'ongeldige gebruikersnaam')"
-				read -r -p "$(L 'Name: ' 'Naam: ')" unsanitized_client
+				read -r -p "$(L 'Name: ' 'Naam: ')" unsanitized_client || exit 1
 				client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 			done
-			cd /etc/openvpn/server/easy-rsa/
-			./easyrsa --batch --days=3650 build-client-full "$client" nopass
+			cd /etc/openvpn/server/easy-rsa/ || operation_failed
+			run_checked ./easyrsa --batch --days=3650 build-client-full "$client" nopass
 			# Build the $client.ovpn file, stripping comments from easy-rsa in the process
-			grep -vh '^#' /etc/openvpn/server/client-common.txt /etc/openvpn/server/easy-rsa/pki/inline/private/"$client".inline > "$script_dir"/"$client".ovpn
+			export_client_profile "$script_dir/$client.ovpn" /etc/openvpn/server/client-common.txt "/etc/openvpn/server/easy-rsa/pki/inline/private/$client.inline" || operation_failed
 			echo
 			printf '%s %s\n' "$(L "$client added. Client configuration:" "$client toegevoegd. VPN-gebruikersbestand:")" "$script_dir/$client.ovpn"
 			exit
 		;;
 		2)
-			# This option could be documented a bit better and maybe even be simplified
-			# ...but what can I say, I want some sleep too
-			number_of_clients=$(tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep -c "^V")
-			if [[ "$number_of_clients" = 0 ]]; then
-				echo
+			client_list=$(awk -F '\t' '$1 == "V" {name=$NF; sub(/^.*\/CN=/, "", name); sub(/\/.*$/, "", name); if (name != "server" && name ~ /^[A-Za-z0-9_-]+$/) print name}' /etc/openvpn/server/easy-rsa/pki/index.txt) || operation_failed
+			if [[ -z "$client_list" ]]; then
 				say 'There are no VPN clients to revoke.' 'Er zijn geen VPN-gebruikers om in te trekken.'
-				exit
+				exit 0
 			fi
-			echo
+			mapfile -t clients <<< "$client_list"
+			number_of_clients=${#clients[@]}
 			say 'Choose the VPN client to revoke:' 'Kies de VPN-gebruiker die je wilt intrekken:'
-			tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
-			read -r -p "$(L 'Client: ' 'Gebruiker: ')" client_number
-			until [[ "$client_number" =~ ^[0-9]+$ && "$client_number" -le "$number_of_clients" ]]; do
+			printf '%s\n' "${clients[@]}" | nl -s ') '
+			read -r -p "$(L 'Client: ' 'Gebruiker: ')" client_number || exit 1
+			until valid_menu_index "$client_number" "$number_of_clients"; do
 				printf '%s: %s\n' "$client_number" "$(L 'invalid selection' 'ongeldige keuze')"
-				read -r -p "$(L 'Client: ' 'Gebruiker: ')" client_number
+				read -r -p "$(L 'Client: ' 'Gebruiker: ')" client_number || exit 1
 			done
-			client=$(tail -n +2 /etc/openvpn/server/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$client_number"p)
+			client="${clients[10#$client_number - 1]}"
 			echo
-			read -r -p "$(L "Revoke VPN client $client? [y/N]: " "VPN-gebruiker $client intrekken? [j/N]: ")" revoke
+			read -r -p "$(L "Revoke VPN client $client? [y/N]: " "VPN-gebruiker $client intrekken? [j/N]: ")" revoke || exit 1
 			until [[ "$revoke" =~ ^[yYjJnN]*$ ]]; do
 				printf '%s: %s\n' "$revoke" "$(L 'invalid selection' 'ongeldige keuze')"
-				read -r -p "$(L "Revoke VPN client $client? [y/N]: " "VPN-gebruiker $client intrekken? [j/N]: ")" revoke
+				read -r -p "$(L "Revoke VPN client $client? [y/N]: " "VPN-gebruiker $client intrekken? [j/N]: ")" revoke || exit 1
 			done
 			if [[ "$revoke" =~ ^[yYjJ]$ ]]; then
-				cd /etc/openvpn/server/easy-rsa/
-				./easyrsa --batch revoke "$client"
-				./easyrsa --batch --days=3650 gen-crl
-				rm -f /etc/openvpn/server/crl.pem
-				rm -f /etc/openvpn/server/easy-rsa/pki/reqs/"$client".req
-				rm -f /etc/openvpn/server/easy-rsa/pki/private/"$client".key
-				cp /etc/openvpn/server/easy-rsa/pki/crl.pem /etc/openvpn/server/crl.pem
-				# CRL is read with each client connection, when OpenVPN is dropped to nobody
-				chown nobody:"$group_name" /etc/openvpn/server/crl.pem
+				cd /etc/openvpn/server/easy-rsa/ || operation_failed
+				run_checked ./easyrsa --batch revoke "$client"
+				run_checked ./easyrsa --batch --days=3650 gen-crl
+				# Publish before deleting local client key material.
+				publish_crl /etc/openvpn/server/easy-rsa/pki/crl.pem /etc/openvpn/server/crl.pem "nobody:$group_name" || operation_failed
+				run_checked rm -f /etc/openvpn/server/easy-rsa/pki/reqs/"$client".req
+				run_checked rm -f /etc/openvpn/server/easy-rsa/pki/private/"$client".key
 				echo
 				printf '%s\n' "$(L "VPN client $client revoked!" "VPN-gebruiker $client is ingetrokken!")"
 			else
@@ -921,10 +954,10 @@ else
 		;;
 		3)
 			echo
-			read -r -p "$(L 'Remove OpenVPN? [y/N]: ' 'OpenVPN verwijderen? [j/N]: ')" remove
+			read -r -p "$(L 'Remove OpenVPN? [y/N]: ' 'OpenVPN verwijderen? [j/N]: ')" remove || exit 1
 			until [[ "$remove" =~ ^[yYjJnN]*$ ]]; do
 				printf '%s: %s\n' "$remove" "$(L 'invalid selection' 'ongeldige keuze')"
-				read -r -p "$(L 'Remove OpenVPN? [y/N]: ' 'OpenVPN verwijderen? [j/N]: ')" remove
+				read -r -p "$(L 'Remove OpenVPN? [y/N]: ' 'OpenVPN verwijderen? [j/N]: ')" remove || exit 1
 			done
 			if [[ "$remove" =~ ^[yYjJ]$ ]]; then
 				port=$(grep '^port ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
@@ -932,18 +965,18 @@ else
 				if systemctl is-active --quiet firewalld.service; then
 					ip=$(firewall-cmd --direct --get-rules ipv4 nat POSTROUTING | grep '\-s 10.8.0.0/24 '"'"'!'"'"' -d 10.8.0.0/24' | grep -oE '[^ ]+$')
 					# Using both permanent and not permanent rules to avoid a firewalld reload.
-					firewall-cmd --remove-port="$port"/"$protocol"
-					firewall-cmd --zone=trusted --remove-source=10.8.0.0/24
-					firewall-cmd --permanent --remove-port="$port"/"$protocol"
-					firewall-cmd --permanent --zone=trusted --remove-source=10.8.0.0/24
-					firewall-cmd --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
-					firewall-cmd --permanent --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
+					run_checked firewall-cmd --remove-port="$port"/"$protocol"
+					run_checked firewall-cmd --zone=trusted --remove-source=10.8.0.0/24
+					run_checked firewall-cmd --permanent --remove-port="$port"/"$protocol"
+					run_checked firewall-cmd --permanent --zone=trusted --remove-source=10.8.0.0/24
+					run_checked firewall-cmd --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
+					run_checked firewall-cmd --permanent --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
 					if grep -qs "server-ipv6" /etc/openvpn/server/server.conf; then
 						ip6=$(firewall-cmd --direct --get-rules ipv6 nat POSTROUTING | grep '\-s fddd:1194:1194:1194::/64 '"'"'!'"'"' -d fddd:1194:1194:1194::/64' | grep -oE '[^ ]+$')
-						firewall-cmd --zone=trusted --remove-source=fddd:1194:1194:1194::/64
-						firewall-cmd --permanent --zone=trusted --remove-source=fddd:1194:1194:1194::/64
-						firewall-cmd --direct --remove-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
-						firewall-cmd --permanent --direct --remove-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
+						run_checked firewall-cmd --zone=trusted --remove-source=fddd:1194:1194:1194::/64
+						run_checked firewall-cmd --permanent --zone=trusted --remove-source=fddd:1194:1194:1194::/64
+						run_checked firewall-cmd --direct --remove-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
+						run_checked firewall-cmd --permanent --direct --remove-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
 					fi
 				else
 					systemctl disable --now openvpn-iptables.service
@@ -980,3 +1013,4 @@ else
 		;;
 	esac
 fi
+
