@@ -149,3 +149,60 @@ must_not_have "--no-check-certificate"
 must_not_have "http://ip1.dynupdate.no-ip.com/"
 
 echo "PASS: syntax, NL/EN interface, port/cipher menus, input validation, diagnostics, safe preview and security policy"
+
+
+# Execute the actual publishing/error helpers in an isolated temporary directory.
+# No packages, services, certificates or firewall rules on the host are modified.
+(
+    sandbox_dir=$(mktemp -d)
+    trap 'rm -rf -- "$sandbox_dir"' EXIT
+    sed -n '/^operation_failed()/,/^# Validate addresses/{ /^# Validate addresses/!p; }' "$script" > "$sandbox_dir/helpers.sh"
+    source "$sandbox_dir/helpers.sh"
+    say() { printf '%s\n' "$1"; }
+    printf 'client\n' > "$sandbox_dir/template"
+    printf '<key>\nexample\n</key>\n' > "$sandbox_dir/inline"
+    printf 'existing profile\n' > "$sandbox_dir/profile"
+    cp "$sandbox_dir/profile" "$sandbox_dir/original"
+    if export_client_profile "$sandbox_dir/profile" "$sandbox_dir/template" "$sandbox_dir/missing" 2>/dev/null; then
+        fail "missing inline key must fail export"
+    fi
+    cmp "$sandbox_dir/profile" "$sandbox_dir/original" || fail "failed export changed existing profile"
+    export_client_profile "$sandbox_dir/profile" "$sandbox_dir/template" "$sandbox_dir/inline" || fail "profile export"
+    [[ $(stat -c %a "$sandbox_dir/profile") == 600 ]] || fail "profile permissions"
+
+    printf 'old CRL\n' > "$sandbox_dir/crl"
+    printf 'new CRL\n' > "$sandbox_dir/new-crl"
+    cp "$sandbox_dir/crl" "$sandbox_dir/old-crl"
+    # Inject failure at each stage and prove the old file remains available.
+    for command_name in cp chown chmod mv; do
+        (
+            eval "$command_name() { return 1; }"
+            if publish_crl "$sandbox_dir/new-crl" "$sandbox_dir/crl" "$(id -u):$(id -g)"; then
+                fail "CRL publishing accepted $command_name failure"
+            fi
+        ) || fail "CRL failure injection"
+        cmp "$sandbox_dir/crl" "$sandbox_dir/old-crl" || fail "failed CRL update replaced old file"
+    done
+    publish_crl "$sandbox_dir/new-crl" "$sandbox_dir/crl" "$(id -u):$(id -g)" || fail "CRL publishing"
+    cmp "$sandbox_dir/crl" "$sandbox_dir/new-crl" || fail "new CRL not published"
+    [[ $(stat -c %a "$sandbox_dir/crl") == 600 ]] || fail "CRL permissions"
+    [[ -z $(find "$sandbox_dir" -name '*.tmp.*' -print) ]] || fail "temporary files left behind"
+
+    set +e
+    (run_checked false; touch "$sandbox_dir/continued") > "$sandbox_dir/error" 2>&1
+    failure_status=$?
+    set -e
+    [[ $failure_status == 1 && ! -e "$sandbox_dir/continued" ]] || fail "failed mutation did not stop execution"
+    grep -q 'Partial changes may remain' "$sandbox_dir/error" || fail "partial failure explanation"
+
+    # Check actual firewalld call sites are wired to the tested failure handler.
+    if grep -Eq '^[[:space:]]+firewall-cmd ' "$script"; then
+        fail "unchecked firewalld mutation"
+    fi
+    for bad_index in 0 -1 100000000000000000000; do
+        # Exercise the actual validation helper, without running the installer.
+        source <(sed -n '/^valid_menu_index()/,/^}/p' "$script")
+        if valid_menu_index "$bad_index" 4; then fail "invalid revocation selection"; fi
+    done
+)
+echo "PASS: failure injection, atomic profile/CRL publishing and revocation index bounds"
