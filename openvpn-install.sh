@@ -94,6 +94,39 @@ publish_crl() {
     fi
 }
 
+# Report missing installer-owned files without changing the existing installation.
+installation_files_complete() {
+    local root="$1" relative missing=0
+    for relative in server.conf ca.crt server.crt server.key dh.pem tc.key crl.pem \
+        client-common.txt easy-rsa/easyrsa easy-rsa/pki/ca.crt \
+        easy-rsa/pki/private/ca.key easy-rsa/pki/index.txt; do
+        if [[ ! -s "$root/$relative" ]]; then
+            printf '%s %s\n' "$(L 'Missing or empty:' 'Ontbreekt of is leeg:')" "$root/$relative" >&2
+            missing=1
+        fi
+    done
+    return "$missing"
+}
+
+# Retrying this operation also repairs a previous failed CRL publication.
+refresh_revocations() {
+    local root="$1" owner="$2" pending
+    if [[ -e "$root/.crl-update-pending" ]]; then
+        pending=$(cat "$root/.crl-update-pending") || return 1
+        # Never claim recovery if the original revoke command did not succeed.
+        if ! awk -F '\t' -v name="$pending" '$1 == "R" {cn=$NF; sub(/^.*\/CN=/, "", cn); sub(/\/.*$/, "", cn); if (cn == name) found=1} END {exit !found}' "$root/easy-rsa/pki/index.txt"; then
+            say 'The selected client was not revoked. Retry revoking that client with option 2 first.' 'De gekozen gebruiker is nog niet ingetrokken. Probeer die gebruiker eerst opnieuw in te trekken met optie 2.' >&2
+            return 1
+        fi
+    fi
+    (
+        cd "$root/easy-rsa" || exit 1
+        ./easyrsa --batch --days=3650 gen-crl || exit 1
+    ) || return 1
+    publish_crl "$root/easy-rsa/pki/crl.pem" "$root/crl.pem" "$owner" || return 1
+    rm -f -- "$root/.crl-update-pending" || return 1
+}
+
 # Validate addresses and names before inserting them into network configuration.
 valid_ipv4() {
     local address="$1" octet
@@ -135,10 +168,17 @@ vpn_diagnose() {
     local config="/etc/openvpn/server/server.conf" common="/etc/openvpn/server/client-common.txt"
     printf '\n'
     say 'VPN diagnostics (read only)' 'VPN-diagnose (alleen lezen)'
+    if [[ -e /etc/openvpn/.sosaklingo-install-incomplete ]]; then
+        say 'WARNING: an earlier installation did not finish.' 'WAARSCHUWING: een eerdere installatie is niet voltooid.'
+    fi
+    if [[ -e /etc/openvpn/server/.crl-update-pending ]]; then
+        say 'WARNING: revocation publication is pending. Use menu option 6 to retry.' 'WAARSCHUWING: intrekkingen zijn nog niet volledig verwerkt. Probeer opnieuw met menuoptie 6.'
+    fi
     if [[ ! -r "$config" ]]; then
         say 'No readable VPN configuration (use sudo if needed).' 'Geen leesbare VPN-configuratie (gebruik eventueel sudo).'
         return 2
     fi
+    installation_files_complete /etc/openvpn/server || return 2
     local key value
     for key in proto port data-ciphers tls-version-min; do
         value=$(sed -n "s/^${key} //p" "$config" | head -n 1)
@@ -433,6 +473,14 @@ fi
 # Store the absolute path of the directory where the script is located
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Do not treat an interrupted install as a fresh server or overwrite its PKI.
+if [[ ! -e /etc/openvpn/server/server.conf ]] &&
+   [[ -e /etc/openvpn/.sosaklingo-install-incomplete || -d /etc/openvpn/server/easy-rsa ]]; then
+    say 'An unfinished installation was found. Existing keys were preserved; automatic reinstallation is blocked.' 'Een onvoltooide installatie gevonden. Bestaande sleutels zijn bewaard; automatisch opnieuw installeren is geblokkeerd.' >&2
+    say 'Run --diagnose and inspect the original error before manual recovery. Do not delete the PKI to retry.' 'Start --diagnose en controleer de oorspronkelijke fout voor handmatig herstel. Verwijder de PKI niet om opnieuw te proberen.' >&2
+    exit 3
+fi
+
 if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	# HTTPS downloader must be installed before changing the server.
 	# Unlike the historical installer, this works consistently on Debian and RPM systems.
@@ -580,6 +628,10 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	if [[ -d /etc/openvpn ]]; then
 		backup_existing_openvpn || exit 1
 	fi
+	if [[ ! -d /etc/openvpn ]]; then
+		run_checked install -d -m 0755 /etc/openvpn
+	fi
+	printf 'Installation started; completion not yet confirmed.\n' > /etc/openvpn/.sosaklingo-install-incomplete || operation_failed
 	# If running inside a container, disable LimitNPROC to prevent conflicts
 	if systemd-detect-virt -cq; then
 		mkdir /etc/systemd/system/openvpn-server@server.service.d/ 2>/dev/null
@@ -872,13 +924,25 @@ verb 3" > /etc/openvpn/server/client-common.txt
 	# Build the $client.ovpn file, stripping comments from easy-rsa in the process
 	export_client_profile "$script_dir/$client.ovpn" /etc/openvpn/server/client-common.txt "/etc/openvpn/server/easy-rsa/pki/inline/private/$client.inline" || operation_failed
 	echo
+	installation_files_complete /etc/openvpn/server || operation_failed
+	run_checked rm -f /etc/openvpn/.sosaklingo-install-incomplete
 	say 'Installation completed!' 'Installatie voltooid!'
 	echo
 	printf '%s %s\n' "$(L 'Client configuration:' 'VPN-gebruikersbestand:')" "$script_dir/$client.ovpn"
 	say 'Run this script again to add VPN clients.' 'Start dit script opnieuw om VPN-gebruikers toe te voegen.'
 else
 	clear
-	say 'OpenVPN is already installed.' 'OpenVPN is al geïnstalleerd.'
+	installation_complete=true
+	if [[ -e /etc/openvpn/.sosaklingo-install-incomplete ]] ||
+	   ! installation_files_complete /etc/openvpn/server; then
+		installation_complete=false
+		say 'Incomplete installation: adding clients is blocked. Use diagnostics to inspect the failure.' 'Onvolledige installatie: gebruikers toevoegen is geblokkeerd. Bekijk de fout via diagnose.'
+	else
+		say 'OpenVPN is already installed.' 'OpenVPN is al geïnstalleerd.'
+	fi
+	if [[ -e /etc/openvpn/server/.crl-update-pending ]]; then
+		say 'Revocation update pending: use option 6 to retry publication.' 'Intrekkingen nog niet volledig verwerkt: gebruik optie 6 om opnieuw te proberen.'
+	fi
 	echo
 	say 'Choose an option:' 'Kies een optie:'
 	say '   1) Add a new VPN client' '   1) VPN-gebruiker toevoegen'
@@ -886,13 +950,19 @@ else
 	say '   3) Remove OpenVPN' '   3) OpenVPN verwijderen'
 	say '   4) Exit' '   4) Afsluiten'
 	say '   5) Show VPN diagnostics (no changes)' '   5) VPN-diagnose bekijken (geen wijzigingen)'
+	say '   6) Rebuild and publish revoked certificates list' '   6) Lijst met ingetrokken certificaten herstellen'
 	read -r -p "$(L 'Option: ' 'Optie: ')" option || exit 1
-	until [[ "$option" =~ ^[1-5]$ ]]; do
+	until [[ "$option" =~ ^[1-6]$ ]]; do
 		printf '%s: %s\n' "$option" "$(L 'invalid selection' 'ongeldige keuze')"
 		read -r -p "$(L 'Option: ' 'Optie: ')" option || exit 1
 	done
+	if [[ "$option" == 1 ]] &&
+	   [[ "$installation_complete" != true || -e /etc/openvpn/server/.crl-update-pending ]]; then
+		say 'Adding clients is blocked until installation or revocation recovery is complete.' 'Gebruikers toevoegen is geblokkeerd totdat installatie of intrekking is hersteld.' >&2
+		exit 3
+	fi
 	# Backup before client addition, revocation or removal (not when exiting).
-	if [[ "$option" =~ ^[123]$ ]]; then
+	if [[ "$option" =~ ^[1236]$ ]]; then
 		backup_existing_openvpn || exit 1
 	fi
 	case "$option" in
@@ -938,10 +1008,10 @@ else
 			done
 			if [[ "$revoke" =~ ^[yYjJ]$ ]]; then
 				cd /etc/openvpn/server/easy-rsa/ || operation_failed
+				printf '%s\n' "$client" > /etc/openvpn/server/.crl-update-pending || operation_failed
 				run_checked ./easyrsa --batch revoke "$client"
-				run_checked ./easyrsa --batch --days=3650 gen-crl
-				# Publish before deleting local client key material.
-				publish_crl /etc/openvpn/server/easy-rsa/pki/crl.pem /etc/openvpn/server/crl.pem "nobody:$group_name" || operation_failed
+				# Keep the pending marker if rebuilding or publication fails.
+				refresh_revocations /etc/openvpn/server "nobody:$group_name" || operation_failed
 				run_checked rm -f /etc/openvpn/server/easy-rsa/pki/reqs/"$client".req
 				run_checked rm -f /etc/openvpn/server/easy-rsa/pki/private/"$client".key
 				echo
@@ -963,7 +1033,7 @@ else
 				port=$(grep '^port ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
 				protocol=$(grep '^proto ' /etc/openvpn/server/server.conf | cut -d " " -f 2)
 				if systemctl is-active --quiet firewalld.service; then
-					ip=$(firewall-cmd --direct --get-rules ipv4 nat POSTROUTING | grep '\-s 10.8.0.0/24 '"'"'!'"'"' -d 10.8.0.0/24' | grep -oE '[^ ]+$')
+					ip=$(firewall-cmd --direct --get-rules ipv4 nat POSTROUTING | grep '\-s 10.8.0.0/24 '"'"'!'"'"' -d 10.8.0.0/24' | grep -oE '[^ ]+$') || operation_failed
 					# Using both permanent and not permanent rules to avoid a firewalld reload.
 					run_checked firewall-cmd --remove-port="$port"/"$protocol"
 					run_checked firewall-cmd --zone=trusted --remove-source=10.8.0.0/24
@@ -972,31 +1042,33 @@ else
 					run_checked firewall-cmd --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
 					run_checked firewall-cmd --permanent --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.8.0.0/24 ! -d 10.8.0.0/24 -j SNAT --to "$ip"
 					if grep -qs "server-ipv6" /etc/openvpn/server/server.conf; then
-						ip6=$(firewall-cmd --direct --get-rules ipv6 nat POSTROUTING | grep '\-s fddd:1194:1194:1194::/64 '"'"'!'"'"' -d fddd:1194:1194:1194::/64' | grep -oE '[^ ]+$')
+						ip6=$(firewall-cmd --direct --get-rules ipv6 nat POSTROUTING | grep '\-s fddd:1194:1194:1194::/64 '"'"'!'"'"' -d fddd:1194:1194:1194::/64' | grep -oE '[^ ]+$') || operation_failed
 						run_checked firewall-cmd --zone=trusted --remove-source=fddd:1194:1194:1194::/64
 						run_checked firewall-cmd --permanent --zone=trusted --remove-source=fddd:1194:1194:1194::/64
 						run_checked firewall-cmd --direct --remove-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
 						run_checked firewall-cmd --permanent --direct --remove-rule ipv6 nat POSTROUTING 0 -s fddd:1194:1194:1194::/64 ! -d fddd:1194:1194:1194::/64 -j SNAT --to "$ip6"
 					fi
 				else
-					systemctl disable --now openvpn-iptables.service
-					rm -f /etc/systemd/system/openvpn-iptables.service
+					run_checked systemctl disable --now openvpn-iptables.service
 				fi
 				if sestatus 2>/dev/null | grep "Current mode" | grep -q "enforcing" && [[ "$port" != 1194 ]]; then
-					semanage port -d -t openvpn_port_t -p "$protocol" "$port"
+					run_checked semanage port -d -t openvpn_port_t -p "$protocol" "$port"
 				fi
-				systemctl disable --now openvpn-server@server.service
-				rm -f /etc/systemd/system/openvpn-server@server.service.d/disable-limitnproc.conf
-				rm -f /etc/sysctl.d/99-openvpn-forward.conf
+				run_checked systemctl disable --now openvpn-server@server.service
+				run_checked rm -f /etc/systemd/system/openvpn-server@server.service.d/disable-limitnproc.conf
+				run_checked rm -f /etc/sysctl.d/99-openvpn-forward.conf
 				if [[ "$os" = "debian" || "$os" = "ubuntu" ]]; then
-					rm -rf /etc/openvpn/server
-					apt-get remove --purge -y openvpn
+					run_checked apt-get remove --purge -y openvpn
+					run_checked rm -rf /etc/openvpn/server
 				else
 					# Else, OS must be CentOS or Fedora
-					dnf remove -y openvpn
-					rm -rf /etc/openvpn/server
+					run_checked dnf remove -y openvpn
+					run_checked rm -rf /etc/openvpn/server
 				fi
 				echo
+				run_checked rm -f /etc/openvpn/.sosaklingo-install-incomplete
+				run_checked rm -f /etc/systemd/system/openvpn-iptables.service
+				run_checked systemctl daemon-reload
 				say 'OpenVPN removed.' 'OpenVPN is verwijderd.'
 			else
 				echo
@@ -1010,6 +1082,11 @@ else
 		5)
 			vpn_diagnose
 			exit $?
+		;;
+		6)
+			refresh_revocations /etc/openvpn/server "nobody:$group_name" || operation_failed
+			say 'Revoked certificates list published. This repairs publication; it does not revoke an additional client.' 'Lijst met ingetrokken certificaten bijgewerkt. Dit herstelt de verwerking; er wordt geen extra gebruiker ingetrokken.'
+			exit 0
 		;;
 	esac
 fi
