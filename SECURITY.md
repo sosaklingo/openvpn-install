@@ -20,6 +20,8 @@
 
 De CA-privésleutel blijft op de VPN-server. CA- en clientkeys worden zonder wachtwoord aangemaakt. De code gebruikt 3650 dagen voor server-/clientcertificaten en CRL-generatie; er is geen automatische rotatie of verversingsplanning. Dit is geen offline-CA- of hardware-sleuteloplossing.
 
+De alleen-lezen diagnose waarschuwt nu bij ongeldige of verlopen servercertificaten en CRL's en bij een vervaldatum binnen 30 dagen. Dit is **geen automatische vernieuwing**: de beheerder moet zelf op tijd een veilige vervanging plannen. Als OpenSSL ontbreekt of een bestand niet leesbaar is, kan de controle onvolledig zijn.
+
 Back-ups bevatten geheimen en zijn niet versleuteld. Publiceer geen sleutels, .ovpn-profielen of back-ups. Bij herstel kan een oude CRL eerdere intrekkingen ongedaan maken; controleer dit afzonderlijk.
 
 Optie 6 herstelt CRL-verwerking, niet iedere mislukte stap. Het bewaren van een oude CRL betekent ook dat een nieuwe intrekking na een fout mogelijk nog niet wordt afgedwongen. De installer biedt geen aparte onmiddellijke disconnect van actieve clients.
@@ -51,6 +53,8 @@ Voor een beveiligingsmelding: gebruik een privérapportagekanaal als dat op GitH
 ### Limitations and administration choices
 
 The CA private key remains on the VPN server. CA and client keys are generated without passwords. Code uses 3650 days for server/client certificates and CRL generation; there is no automatic rotation or refresh schedule. This is not an offline CA or hardware-key solution.
+
+The read-only diagnostic now warns about expired or invalid server certificates and CRLs and about expiry within 30 days. This **does not renew certificates or CRLs**: the administrator must arrange safe replacement in time. The check can be incomplete if OpenSSL is unavailable or files cannot be read.
 
 Backups contain secrets and are not encrypted. Never publish keys, .ovpn profiles or backups. Restoring an older CRL may undo previous revocations; check this separately.
 

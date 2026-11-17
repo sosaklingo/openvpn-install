@@ -307,3 +307,38 @@ DRIVER
     done
 )
 echo "PASS: removal aborts on service, package and file-operation failures"
+
+# Read-only PKI expiry warnings are tested with mocked OpenSSL output.
+# The actual server paths and certificate files are never touched.
+(
+    sandbox_dir=$(mktemp -d)
+    trap 'rm -rf -- "$sandbox_dir"' EXIT
+    printf 'synthetic certificate fixture\n' > "$sandbox_dir/pki.pem"
+    source <(sed -n '/^inspect_pki_expiry()/,/^}/p' "$script")
+    say() { printf '%s / %s\n' "$1" "$2"; }
+    openssl() {
+        case "$mock_mode" in
+            cert_soon) [[ "$*" == *"-checkend 0"* ]] ;;
+            cert_expired) return 1 ;;
+            crl_soon) printf 'nextUpdate=%s\n' "$(date -u -d '+7 days' '+%b %d %T %Y GMT')" ;;
+            crl_expired) printf 'nextUpdate=%s\n' "$(date -u -d 'yesterday' '+%b %d %T %Y GMT')" ;;
+            crl_invalid) return 1 ;;
+        esac
+    }
+    mock_mode=cert_soon
+    result=$(inspect_pki_expiry cert "$sandbox_dir/pki.pem")
+    [[ "$result" == *"servercertificaat verloopt binnen 30 dagen"* ]] || fail "certificate expiry warning missing"
+    mock_mode=cert_expired
+    result=$(inspect_pki_expiry cert "$sandbox_dir/pki.pem")
+    [[ "$result" == *"servercertificaat is verlopen of ongeldig"* ]] || fail "expired certificate warning missing"
+    mock_mode=crl_soon
+    result=$(inspect_pki_expiry crl "$sandbox_dir/pki.pem")
+    [[ "$result" == *"intrekkingslijst verloopt binnen 30 dagen"* ]] || fail "CRL expiry warning missing"
+    mock_mode=crl_expired
+    result=$(inspect_pki_expiry crl "$sandbox_dir/pki.pem")
+    [[ "$result" == *"intrekkingslijst is verlopen"* ]] || fail "expired CRL warning missing"
+    mock_mode=crl_invalid
+    result=$(inspect_pki_expiry crl "$sandbox_dir/pki.pem")
+    [[ "$result" == *"intrekkingslijst kan niet worden gecontroleerd"* ]] || fail "malformed CRL warning missing"
+)
+echo "PASS: certificate and CRL expiry warnings (read-only simulated checks)"

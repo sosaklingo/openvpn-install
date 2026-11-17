@@ -164,6 +164,42 @@ valid_menu_index() {
     [[ "$input" =~ ^[0-9]{1,3}$ ]] && (( 10#$input >= 1 && 10#$input <= limit ))
 }
 
+# Read-only expiry checks. Do not modify the certificate, CRL or system clock.
+# Warnings appear 30 days before expiration (or on malformed/expired files).
+inspect_pki_expiry() {
+    local kind="$1" file="$2" next_update deadline now expiry
+    [[ -r "$file" ]] || return 0
+    if ! command -v openssl >/dev/null 2>&1; then
+        say 'WARNING: OpenSSL is unavailable; certificate expiry was not checked.' 'WAARSCHUWING: OpenSSL ontbreekt; vervaldatums zijn niet gecontroleerd.'
+        return 0
+    fi
+    if [[ "$kind" == cert ]]; then
+        if ! openssl x509 -in "$file" -noout -checkend 0 >/dev/null 2>&1; then
+            say 'WARNING: the server certificate is expired or invalid.' 'WAARSCHUWING: het servercertificaat is verlopen of ongeldig.'
+        elif ! openssl x509 -in "$file" -noout -checkend 2592000 >/dev/null 2>&1; then
+            say 'WARNING: the server certificate expires within 30 days.' 'WAARSCHUWING: het servercertificaat verloopt binnen 30 dagen.'
+        fi
+    elif [[ "$kind" == crl ]]; then
+        next_update=$(openssl crl -in "$file" -noout -nextupdate 2>/dev/null) || next_update=''
+        if [[ "$next_update" != nextUpdate=* ]]; then
+            say 'WARNING: the certificate revocation list cannot be checked.' 'WAARSCHUWING: de certificaatintrekkingslijst kan niet worden gecontroleerd.'
+            return 0
+        fi
+        expiry=$(date -u -d "${next_update#nextUpdate=}" +%s 2>/dev/null) || expiry=''
+        if [[ ! "$expiry" =~ ^[0-9]+$ ]]; then
+            say 'WARNING: the revocation list expiry date cannot be parsed.' 'WAARSCHUWING: de vervaldatum van de intrekkingslijst kan niet worden gelezen.'
+            return 0
+        fi
+        now=$(date -u +%s)
+        deadline=$((now + 2592000))
+        if (( expiry <= now )); then
+            say 'WARNING: the certificate revocation list has expired.' 'WAARSCHUWING: de certificaatintrekkingslijst is verlopen.'
+        elif (( expiry <= deadline )); then
+            say 'WARNING: the revocation list expires within 30 days.' 'WAARSCHUWING: de intrekkingslijst verloopt binnen 30 dagen.'
+        fi
+    fi
+}
+
 vpn_diagnose() {
     local config="/etc/openvpn/server/server.conf" common="/etc/openvpn/server/client-common.txt"
     printf '\n'
@@ -208,6 +244,11 @@ vpn_diagnose() {
     fi
     if ! grep -q '^server-ipv6 ' "$config"; then
         say 'WARNING: VPN IPv6 is not configured. Test client IPv6 leak protection.' 'WAARSCHUWING: VPN-IPv6 niet ingesteld. Test IPv6-lekbeveiliging op clients.'
+    fi
+    inspect_pki_expiry cert /etc/openvpn/server/server.crt
+    inspect_pki_expiry crl /etc/openvpn/server/crl.pem
+    if [[ -d /var/backups/openvpn-sosaklingo ]]; then
+        say 'Reminder: configuration backups contain unencrypted keys; protect or encrypt copies outside this server.' 'Let op: configuratieback-ups bevatten onversleutelde sleutels; bescherm of versleutel kopieën buiten deze server.'
     fi
     say 'Test DNS and IPv6 leaks from your connected device.' 'Test DNS- en IPv6-lekken vanaf je verbonden apparaat.'
 }
