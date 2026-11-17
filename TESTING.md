@@ -15,6 +15,8 @@ bash tests/test_installer.sh
 
 De tests controleren syntax, Nederlandse/Engelse menu's, poort- en versleutelingskeuzes, invoervalidatie, diagnose, profielexport en CRL-vervanging. Nagebootste fouten controleren behoud van oude bestanden, herstel na CRL-fouten, blokkering van onvolledige installatie en stoppen bij fouten tijdens verwijderen.
 
+GitHub Actions draait deze niet-destructieve tests op Ubuntu 22.04 en 24.04. De diagnose controleert ook certificaat- en CRL-vervaldata zonder ze te wijzigen; gesimuleerde testgevallen controleren de waarschuwingsmeldingen.
+
 Er wordt geen echte VPN geïnstalleerd. Diensten, pakketbeheer en verschillende bestandsacties worden in fouttests nagebootst. Lees de uitvoer en [GitHub Actions](https://github.com/sosaklingo/openvpn-install/actions) voor de uitslag per commit.
 
 ### Nog uit te voeren: echte praktijktest
@@ -47,6 +49,8 @@ bash tests/test_installer.sh
 ```
 
 Tests cover syntax, Dutch/English menus, port/encryption choices, input validation, diagnostics, profile export and CRL replacement. Injected failures check preservation of existing files, recovery after CRL failures, incomplete-installation protection and stopping on removal errors.
+
+GitHub Actions runs these non-destructive checks on Ubuntu 22.04 and 24.04. The diagnostic also checks certificate and CRL expiry without changing them; simulated test cases cover warning behavior.
 
 No real VPN is installed. Services, package management and several file operations are mocked in failure tests. Read the output and GitHub Actions for results per commit.
 
