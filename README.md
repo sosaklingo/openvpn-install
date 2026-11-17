@@ -1,43 +1,124 @@
-# OpenVPN road warrior installer
+# OpenVPN Installer — Nederlands / English
 
-## Nederlands
+**Eén Bash-bestand voor installatie en beheer, met Nederlandse en Engelse menu's.**  
+**One Bash file for installation and management, with Dutch and English menus.**
 
-Deze handleiding hoort bij het historische [Bash-script](openvpn-install.sh) op `master`. De [moderne installer in PR #1](https://github.com/sosaklingo/openvpn-install/pull/1) heeft een eigen handleiding.
+Deze documentatie hoort bij **modern-2026**, bijgewerkt op 15 november 2026.  
+This documentation covers **modern-2026**, updated on 15 November 2026.
 
-### Controleer eerst je systeem
+## Handleiding / Manual
 
-Het script vereist root en `/dev/net/tun`. Het herkent Debian/Ubuntu en CentOS via releasebestanden en weigert CentOS 5. Die detectie bevestigt geen compatibiliteit met een specifieke huidige versie. Het script gebruikt onder meer `iptables`, `rc.local` en, bij systemd, `openvpn@server.service`. Server en client gebruiken IPv4, UDP (standaardpoort 1194), `comp-lzo` en `cipher AES-256-CBC`. Controleer of je server en client deze configuratie ondersteunen.
+| Nederlands | English |
+| --- | --- |
+| [Volledige Nederlandse handleiding](docs/HANDLEIDING-NL.md) | [Complete English manual](docs/MANUAL-EN.md) |
+| [Migratie en herstel](MIGRATION.md) | [Migration and recovery](MIGRATION.md) |
+| [Beveiliging en grenzen](SECURITY.md) | [Security and limitations](SECURITY.md) |
+| [Testen en praktijktestplan](TESTING.md) | [Tests and live test plan](TESTING.md) |
+| [Wijzigingen](CHANGELOG.md) | [Changes](CHANGELOG.md) |
 
-### Downloaden en bekijken
+**Status:** automatische syntax-, menu- en foutafhandelingstests zijn uitgevoerd. Een volledige serverinstallatie, echte clientverbinding, herstart en DNS-/IPv6-lektest zijn nog niet bevestigd. Een groene test is geen bewijs van een veilige productie-installatie.
 
-Gebruik de opdrachten hieronder in een lege map als gewone gebruiker. De HTTPS-link verwijst naar een vaste versie in deze repository. Bekijk het hele script voordat je het rootrechten geeft. Stop bij een download- of certificaatfout.
+**Status:** automated syntax, menu and failure-handling tests have been run. A complete server installation, real client connection, reboot and DNS/IPv6 leak test have not yet been confirmed. Passing tests do not prove production readiness.
 
-```sh
-wget -O openvpn-install.sh https://raw.githubusercontent.com/sosaklingo/openvpn-install/18b7ffc1e6219abf6aec7607ab9f4f2f75fd482b/openvpn-install.sh && less openvpn-install.sh
+## Snel beginnen / Quick start
+
+Begin op een aparte Linux-testserver met Bash, systemd, TUN, sudo/root en curl. Het script accepteert Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ en Fedora, zonder dat al deze systemen volledig zijn getest.
+
+Start on a separate Linux test server with Bash, systemd, TUN, sudo/root and curl. The script accepts Ubuntu 22.04+, Debian 11+, AlmaLinux/Rocky/CentOS 9+ and Fedora; not all these systems have been fully tested.
+
+Download het ene bestand / Download the single file:
+
+```bash
+mkdir -p ~/openvpn-installer
+cd ~/openvpn-installer
+curl -fL --proto '=https' --tlsv1.2 -o openvpn-install.sh.download \
+  https://raw.githubusercontent.com/sosaklingo/openvpn-install/d946773aa2066d71285134f86417ca646237e8f4/openvpn-install.sh
 ```
 
-### Vóór uitvoering
+Ga alleen verder als de download slaagt. / Continue only after a successful download.
 
-- Test eerst op een aparte VM met consoletoegang. Het script installeert pakketten, schakelt IPv4-forwarding in en wijzigt NAT- en firewallregels.
-- Maak een back-up van `/etc/openvpn` en je netwerkinstellingen. Bij een nieuwe installatie verwijdert het script een bestaande map `/etc/openvpn/easy-rsa/`. Het downloadt Easy-RSA 3.0.1 en pakt het archief uit zonder de checksum of handtekening te controleren.
-- Na beoordeling kun je in de VM als root `bash openvpn-install.sh` uitvoeren. Het gegenereerde `.ovpn`-profiel bevat de privésleutel van de client zonder wachtwoord. Bewaar het privé en draag het beveiligd over.
-- Bij een volgende start verschijnt het beheermenu als `/etc/openvpn/server.conf` bestaat. Je kunt een client aanmaken, een certificaat intrekken of OpenVPN verwijderen. Na bevestiging verwijdert de laatste optie de **hele map** `/etc/openvpn`.
+```bash
+bash -n openvpn-install.sh.download &&
+mv openvpn-install.sh.download openvpn-install.sh
+```
 
-## English
+Bekijk de code, kies je taal en controleer vóór installatie.  
+Inspect the code, choose your language and check before installing.
 
-This guide covers the historical [Bash script](openvpn-install.sh) on `master`. The [modern installer proposed in PR #1](https://github.com/sosaklingo/openvpn-install/pull/1) has its own guide.
+**Nederlands:**
 
-### Check your system
+```bash
+bash openvpn-install.sh --lang nl --preview
+bash openvpn-install.sh --lang nl --check
+bash openvpn-install.sh --lang nl --self-test
+sudo bash openvpn-install.sh --lang nl
+```
 
-The script requires root and `/dev/net/tun`. It recognizes Debian/Ubuntu and CentOS through release files and rejects CentOS 5. Detection alone does not establish compatibility with a particular current release. It relies on `iptables`, `rc.local` and, on the systemd path, `openvpn@server.service`. The server and client configurations use IPv4, UDP (default port 1194), `comp-lzo` and `cipher AES-256-CBC`. Check that your server and client support these settings.
+**English:**
 
-### Download and review
+```bash
+bash openvpn-install.sh --lang en --preview
+bash openvpn-install.sh --lang en --check
+bash openvpn-install.sh --lang en --self-test
+sudo bash openvpn-install.sh --lang en
+```
 
-Run the `wget` command above as a regular user in an empty directory. It downloads a fixed revision from this repository over HTTPS and opens it for review. Read the entire script before granting root privileges. Stop if the download or certificate check fails.
+Los gemelde problemen op voordat je installeert. Kies protocol, poort, versleuteling, DNS en clientnaam. Bevestig met **JA** of **YES**. Het .ovpn-profiel komt naast het script; importeer dit veilig in je OpenVPN-client.
 
-### Before running
+Resolve reported problems before installation. Choose protocol, port, encryption, DNS and client name. Confirm with **JA** or **YES**. The .ovpn profile is saved beside the script; securely import it into your OpenVPN client.
 
-- Test in a separate VM with console access. The script installs packages, enables IPv4 forwarding and changes NAT and firewall rules.
-- Back up `/etc/openvpn` and your network settings. A fresh install deletes any existing `/etc/openvpn/easy-rsa/` directory. The script downloads Easy-RSA 3.0.1 and extracts it without verifying a checksum or signature.
-- After review, run `bash openvpn-install.sh` as root in the VM. The generated `.ovpn` profile contains the client's passwordless private key. Store it privately and transfer it securely.
-- Running the script again opens the management menu if `/etc/openvpn/server.conf` exists. You can add a client, revoke a certificate or uninstall OpenVPN. Confirming uninstall deletes the **entire** `/etc/openvpn` directory.
+Een nieuwe scriptdownload wijzigt je bestaande server niet automatisch. De downloadlink verwijst naar de geteste scriptversie.  
+Downloading a new script does not automatically update your existing server. The download link points to the tested script revision.
+
+## Beheer / Management
+
+Start hetzelfde script opnieuw. / Run the same script again.
+
+| Optie / Option | Nederlands | English |
+| --- | --- | --- |
+| 1 | Gebruiker toevoegen | Add client |
+| 2 | Gebruiker intrekken | Revoke client |
+| 3 | OpenVPN verwijderen | Remove OpenVPN |
+| 4 | Afsluiten | Exit |
+| 5 | Diagnose bekijken | Show diagnostics |
+| 6 | Intrekkingslijst herstellen | Rebuild and publish revocation list |
+
+Optie 6 herstelt het maken/publiceren van de certificaatintrekkingslijst. Als intrekken zelf mislukte, moet je eerst optie 2 opnieuw gebruiken. Optie 6 hervat geen installatie en herstelt geen firewall.
+
+Option 6 repairs generation/publication of the certificate revocation list. If revocation itself failed, retry option 2 first. Option 6 does not resume installation or repair the firewall.
+
+## Inbegrepen / Included
+
+- Taal-, poort- en dataversleutelingsmenu / Language, port and data-encryption menus.
+- Automatische AES-GCM-keuze, AES-256-GCM, AES-128-GCM of ChaCha20-Poly1305 bij ondersteuning / Automatic AES-GCM selection, AES-256-GCM, AES-128-GCM or ChaCha20-Poly1305 when supported.
+- tls-crypt, minimaal TLS 1.2, vastgezette Easy-RSA 3.2.7-download met SHA-256-controle / tls-crypt, minimum TLS 1.2, pinned Easy-RSA 3.2.7 download with SHA-256 verification.
+- Afgeschermde configuratieback-ups; gecontroleerde vervanging van profielen en CRL / Restricted configuration backups; staged replacement of profiles and CRL.
+- Detectie van onvolledige installatie, hersteloptie voor intrekkingen, extra foutcontroles / Incomplete-install detection, revocation recovery and additional error checks.
+- Alleen-lezen diagnose en demonstraties / Read-only diagnostics and demonstrations.
+
+Back-ups bevatten sleutels en zijn **niet versleuteld**. Er is geen volledige rollback, automatische hervatting of automatische migratie vanaf de oude indeling. DNS-/IPv6-lekbeveiliging moet per client worden getest. Zie de handleiding voor alle opties en beperkingen.
+
+Backups contain keys and are **not encrypted**. There is no full rollback, automatic resume or automatic migration from the legacy layout. DNS/IPv6 leak protection must be tested per client. See the manual for all options and limitations.
+
+## Tests
+
+```bash
+bash -n openvpn-install.sh
+bash tests/test_installer.sh
+```
+
+De tests vereisen de repository, niet alleen het installerbestand. Ze installeren geen VPN.  
+Tests require the repository, not just the installer file. They do not install a VPN.
+
+[GitHub Actions](https://github.com/sosaklingo/openvpn-install/actions) · [Praktijktestplan / Live test plan](TESTING.md)
+
+## Herkomst en licentie / Attribution and license
+
+Gebaseerd op [Nyr/openvpn-install](https://github.com/Nyr/openvpn-install), upstream-revisie 7ff931a00c37a6806bd1fa8cb61bf3369d963e94. Oorspronkelijke auteur © 2013 Nyr, [MIT-licentie](LICENSE.txt). Fork onderhouden door sosaklingo; verdere ontwikkeling met ChatGPT (OpenAI) in november 2026.
+
+Based on Nyr/openvpn-install at the upstream revision above. Original author © 2013 Nyr, MIT license. Fork maintained by sosaklingo, further developed with ChatGPT (OpenAI) in November 2026. No endorsement by OpenVPN, Nyr or OpenAI is implied.
+
+De historische code staat in [legacy-2015](https://github.com/sosaklingo/openvpn-install/tree/legacy-2015), uitsluitend ter referentie.  
+Historical code is in legacy-2015 for reference.
+
+[Handleiding bij de historische versie / Historical installation guide](https://github.com/sosaklingo/openvpn-install/blob/5bc501805f3364069b930995d7aa646426a5d665/README.md).

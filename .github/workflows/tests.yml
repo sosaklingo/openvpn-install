@@ -1,0 +1,19 @@
+name: Installer static tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  safe-static-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Bash syntax
+        run: bash -n openvpn-install.sh
+      - name: Run non-destructive smoke and security policy tests
+        run: bash tests/test_installer.sh
