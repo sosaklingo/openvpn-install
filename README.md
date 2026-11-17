@@ -32,7 +32,7 @@ Download het ene bestand / Download the single file:
 mkdir -p ~/openvpn-installer
 cd ~/openvpn-installer
 curl -fL --proto '=https' --tlsv1.2 -o openvpn-install.sh.download \
-  https://raw.githubusercontent.com/sosaklingo/openvpn-install/modern-2026/openvpn-install.sh
+  https://raw.githubusercontent.com/sosaklingo/openvpn-install/d946773aa2066d71285134f86417ca646237e8f4/openvpn-install.sh
 ```
 
 Ga alleen verder als de download slaagt. / Continue only after a successful download.
@@ -67,8 +67,8 @@ Los gemelde problemen op voordat je installeert. Kies protocol, poort, versleute
 
 Resolve reported problems before installation. Choose protocol, port, encryption, DNS and client name. Confirm with **JA** or **YES**. The .ovpn profile is saved beside the script; securely import it into your OpenVPN client.
 
-Een nieuwe scriptdownload wijzigt je bestaande server niet automatisch. De standaardbranch kan andere code bevatten: gebruik de link naar **modern-2026** hierboven.  
-Downloading a new script does not automatically update your existing server. The default branch may contain different code: use the **modern-2026** link above.
+Een nieuwe scriptdownload wijzigt je bestaande server niet automatisch. De downloadlink verwijst naar de geteste scriptversie.  
+Downloading a new script does not automatically update your existing server. The download link points to the tested script revision.
 
 ## Beheer / Management
 
@@ -120,3 +120,5 @@ Based on Nyr/openvpn-install at the upstream revision above. Original author © 
 
 De historische code staat in [legacy-2015](https://github.com/sosaklingo/openvpn-install/tree/legacy-2015), uitsluitend ter referentie.  
 Historical code is in legacy-2015 for reference.
+
+[Handleiding bij de historische versie / Historical installation guide](https://github.com/sosaklingo/openvpn-install/blob/5bc501805f3364069b930995d7aa646426a5d665/README.md).

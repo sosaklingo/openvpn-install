@@ -2,7 +2,7 @@
 
 [Nederlands](HANDLEIDING-NL.md) · [Home](../README.md) · [Security](../SECURITY.md) · [Migration and recovery](../MIGRATION.md)
 
-Updated: 15 November 2026. For the **modern-2026** branch.
+Updated: 15 November 2026. For the modern installer.
 
 ## 1. Preparation
 
@@ -24,7 +24,7 @@ On the Linux server:
 mkdir -p ~/openvpn-installer
 cd ~/openvpn-installer
 curl -fL --proto '=https' --tlsv1.2 -o openvpn-install.sh.download \
-  https://raw.githubusercontent.com/sosaklingo/openvpn-install/modern-2026/openvpn-install.sh
+  https://raw.githubusercontent.com/sosaklingo/openvpn-install/d946773aa2066d71285134f86417ca646237e8f4/openvpn-install.sh
 ```
 
 Continue only if the download completed without an error:
